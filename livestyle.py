@@ -4,6 +4,7 @@ import threading
 import sys
 import os.path
 import imp
+import select
 
 import sublime
 import sublime_plugin
@@ -12,9 +13,22 @@ import sublime_plugin
 BASE_PATH = os.path.abspath(os.path.dirname(__file__))
 PACKAGES_PATH = sublime.packages_path() or os.path.dirname(BASE_PATH)
 sys.path += [
-	BASE_PATH, 
-	os.path.join(BASE_PATH, 'tornado')
+	BASE_PATH
 ]
+
+
+# don't know why, but tornado's IOLoop cannot
+# properly load platform modules during runtime, 
+# so we pre-import them
+if hasattr(select, "epoll"):
+	import tornado.platform.epoll
+elif hasattr(select, "kqueue"):
+	import tornado.platform.kqueue
+else:
+	import tornado.platform.select
+
+
+import tornado.platform.kqueue
 
 import tornado.httpserver
 import tornado.websocket
@@ -100,15 +114,15 @@ def send_patches(buf_id=None, p=None):
 		return
 
 	print(p)
-
+	p = json.loads(p)
 	view = eutils.view_for_buffer_id(buf_id)
-	if view:
+	if p and view:
 		print('Sending patch')
 		send_message({
 			'action': 'update',
 			'data': {
 				'editorFile': eutils.file_name(view),
-				'patch': json.loads(p)
+				'patch': p
 			}
 		})
 
@@ -134,24 +148,6 @@ class LiveStyleListener(sublime_plugin.EventListener):
 			print('Prepare diff')
 			lsutils.diff.prepare(view.buffer_id())
 
-
-# class LivestyleBuildTree(sublime_plugin.TextCommand):
-# 	def run(self, edit, **kw):
-# 		lsutils.tree.build(eutils.active_view())
-
-# class LivestylePrepareDiff(sublime_plugin.TextCommand):
-# 	def run(self, edit, **kw):
-# 		print('Prepare diff')
-# 		lsutils.diff.prepare(eutils.active_view().buffer_id())
-
-# class LivestyleRunDiff(sublime_plugin.TextCommand):
-# 	def run(self, edit, **kw):
-# 		print('Run diff')
-# 		def callback(buf_id=None, p=None):
-# 			print('Patch: %s' % p)
-
-# 		lsutils.diff.diff(eutils.active_view().buffer_id(), callback)
-
 # XXX init
 application = tornado.web.Application([
 	(r'/browser', WSHandler),
@@ -161,8 +157,24 @@ def start_server(port, ctx=None):
 	print('Starting LiveStyle server on port %s' % port)
 	server = tornado.httpserver.HTTPServer(application)
 	server.listen(port, address='127.0.0.1')
+	# tornado.ioloop.IOLoop.instance().start()
 	threading.Thread(target=tornado.ioloop.IOLoop.instance().start).start()
 	globals()['httpserver'] = server
+
+	return
+
+
+
+
+	try:
+		server.listen(port, address='127.0.0.1')
+		# tornado.ioloop.IOLoop.instance().start()
+		threading.Thread(target=tornado.ioloop.IOLoop.instance().start).start()
+		globals()['httpserver'] = server
+	except Exception as e:
+		server.stop()
+		raise e
+	
 
 def stop_server():
 	for c in WSHandler.clients.copy():
