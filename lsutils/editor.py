@@ -9,6 +9,14 @@ import re
 
 re_css = re.compile(r'\.css$', re.IGNORECASE)
 
+try:
+	isinstance("", basestring)
+	def isstr(s):
+		return isinstance(s, basestring)
+except NameError:
+	def isstr(s):
+		return isinstance(s, str)
+
 def main_thread(fn):
 	"Run function in main thread"
 	return lambda *args, **kwargs: sublime.set_timeout(lambda: fn(*args, **kwargs), 0)
@@ -28,10 +36,6 @@ def view_for_buffer_id(buf_id):
 			if v.buffer_id() == buf_id:
 				return v
 
-def active_view():
-	"Returns currently active view"
-	return sublime.active_window().active_view()
-
 def view_for_file(path):
 	"Locates editor view with given file path"
 	for wnd in sublime.windows():
@@ -40,6 +44,10 @@ def view_for_file(path):
 				return view
 
 	return None
+
+def active_view():
+	"Returns currently active view"
+	return sublime.active_window().active_view()
 
 def css_views():
 	"Returns list of opened CSS views"

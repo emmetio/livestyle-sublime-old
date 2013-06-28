@@ -16,7 +16,6 @@ sys.path += [
 	BASE_PATH
 ]
 
-
 # don't know why, but tornado's IOLoop cannot
 # properly load platform modules during runtime, 
 # so we pre-import them
@@ -26,9 +25,6 @@ elif hasattr(select, "kqueue"):
 	import tornado.platform.kqueue
 else:
 	import tornado.platform.select
-
-
-import tornado.platform.kqueue
 
 import tornado.httpserver
 import tornado.websocket
@@ -48,13 +44,7 @@ sublime_ver = int(sublime.version()[0])
 # Tornado server instance
 httpserver = None
 
-try:
-	isinstance("", basestring)
-	def isstr(s):
-		return isinstance(s, basestring)
-except NameError:
-	def isstr(s):
-		return isinstance(s, str)
+_suppressed = set()
 
 class WSHandler(tornado.websocket.WebSocketHandler):
 	clients = set()
@@ -66,9 +56,9 @@ class WSHandler(tornado.websocket.WebSocketHandler):
 	def on_message(self, message):
 		# print('message received:\n%s' % message)
 		message = json.loads(message)
-		# if message['action'] == 'update':
-		# 	update_css(message['data'])
-		# 	send_message(message, exclude=self)
+		if message['action'] == 'update':
+			handle_patch_request(message['data'])
+			send_message(message, exclude=self)
 
 	def on_close(self):
 		print('connection closed')
@@ -76,7 +66,7 @@ class WSHandler(tornado.websocket.WebSocketHandler):
 
 def send_message(message, client=None, exclude=None):
 	"Sends given message to websocket clients"
-	if not isstr(message):
+	if not eutils.isstr(message):
 		message = json.dumps(message)
 	clients = WSHandler.clients if not client else [client]
 	if exclude:
@@ -117,7 +107,6 @@ def send_patches(buf_id=None, p=None):
 	p = json.loads(p)
 	view = eutils.view_for_buffer_id(buf_id)
 	if p and view:
-		print('Sending patch')
 		send_message({
 			'action': 'update',
 			'data': {
@@ -126,12 +115,55 @@ def send_patches(buf_id=None, p=None):
 			}
 		})
 
+@eutils.main_thread
+def handle_patch_request(payload):
+	print('Handle CSS patch request')
+
+	editor_file = payload.get('editorFile')
+	if not editor_file:
+		print('No editor file')
+		return
+
+	view = eutils.view_for_file(editor_file)
+	if view is None:
+		print('Unable to find view for %s file, open new one' % editor_file)
+		view = sublime.active_window().open_file(editor_file)
+
+	patch = payload.get('patch')
+	if patch:
+		while view.is_loading():
+			pass
+
+		lsutils.diff.patch(view.buffer_id(), patch, apply_patched_source)
+
+
+def apply_patched_source(buf_id, content):
+	view = eutils.view_for_buffer_id(buf_id)
+	if not view:
+		return
+
+	if sublime_ver < 3:
+		content = content.decode('utf-8')
+
+	view.run_command('livestyle_replace_content', {'content': content})
+
+
 def should_handle(view):
+	"Checks whether incoming view modification should be handled"
+	if view.id() in _suppressed:
+		_suppressed.remove(view.id())
+		return False
+
 	# don't do anything if there are no connected clients
 	# or change performed outside of CSS file
 	return WSHandler.clients and eutils.is_css_view(view)
 
-class LiveStyleListener(sublime_plugin.EventListener):
+def suppress_update(view):
+	"Marks given view to skip next incoming update"
+	_suppressed.add(view.id())
+
+
+class LivestyleListener(sublime_plugin.EventListener):
 	def on_load(self, view):
 		update_files()
 
@@ -146,7 +178,14 @@ class LiveStyleListener(sublime_plugin.EventListener):
 	def on_activated(self, view):
 		if eutils.is_css_view(view):
 			print('Prepare diff')
-			lsutils.diff.prepare(view.buffer_id())
+			lsutils.diff.prepare_diff(view.buffer_id())
+
+class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
+	"Internal command to properly replace view content"
+	def run(self, edit, content=None, **kw):
+		# _cache['supress_modification'] = True
+		suppress_update(self.view)
+		self.view.replace(edit, sublime.Region(0, self.view.size()), content)
 
 # XXX init
 application = tornado.web.Application([
@@ -157,24 +196,8 @@ def start_server(port, ctx=None):
 	print('Starting LiveStyle server on port %s' % port)
 	server = tornado.httpserver.HTTPServer(application)
 	server.listen(port, address='127.0.0.1')
-	# tornado.ioloop.IOLoop.instance().start()
 	threading.Thread(target=tornado.ioloop.IOLoop.instance().start).start()
-	globals()['httpserver'] = server
-
-	return
-
-
-
-
-	try:
-		server.listen(port, address='127.0.0.1')
-		# tornado.ioloop.IOLoop.instance().start()
-		threading.Thread(target=tornado.ioloop.IOLoop.instance().start).start()
-		globals()['httpserver'] = server
-	except Exception as e:
-		server.stop()
-		raise e
-	
+	globals()['httpserver'] = server	
 
 def stop_server():
 	for c in WSHandler.clients.copy():
