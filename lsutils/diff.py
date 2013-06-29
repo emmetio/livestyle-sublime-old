@@ -89,7 +89,7 @@ def _start_diff(buf_id, callback):
 		if buf_id in _diff_state:
 			state = _diff_state[buf_id]
 			state['running'] = False
-			if not state['content'] and result is not None:
+			if result is not None:
 				state['content'] = content
 
 			if state['required']:
@@ -97,7 +97,6 @@ def _start_diff(buf_id, callback):
 	
 	state['required'] = False
 	state['running'] = True
-	state['content'] = ''
 	with PyV8.JSLocker():
 		threading.Thread(target=_run_diff, args=(prev_content, content, _c)).start()
 

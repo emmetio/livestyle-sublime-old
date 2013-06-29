@@ -139,7 +139,7 @@ def handle_patch_request(payload):
 
 def apply_patched_source(buf_id, content):
 	view = eutils.view_for_buffer_id(buf_id)
-	if not view:
+	if not view or content is None:
 		return
 
 	if sublime_ver < 3:
@@ -165,7 +165,8 @@ def suppress_update(view):
 
 class LivestyleListener(sublime_plugin.EventListener):
 	def on_load(self, view):
-		update_files()
+		if eutils.is_css_view(view):
+			update_files()
 
 	def on_close(self, view):
 		update_files()
