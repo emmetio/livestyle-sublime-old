@@ -27,21 +27,32 @@ def content(view):
 
 def file_name(view):
 	"Returns file name representation for given view"
-	return view.file_name()
+	return view.file_name() or temp_file_name(view)
+
+def temp_file_name(view):
+	"Returns temporary name for (unsaved) views"
+	return '<untitled:%d>' % view.id()
+
+def all_views():
+	"Returns all view from all windows"
+	views = set()
+	for w in sublime.windows():
+		for v in w.views():
+			views.add(v)
+
+	return views
 
 def view_for_buffer_id(buf_id):
 	"Returns view for given buffer id"
-	for w in sublime.windows():
-		for v in w.views():
-			if v.buffer_id() == buf_id:
-				return v
+	for view in all_views():
+		if view.buffer_id() == buf_id:
+			return view
 
 def view_for_file(path):
 	"Locates editor view with given file path"
-	for wnd in sublime.windows():
-		for view in wnd.views():
-			if view.file_name() == path:
-				return view
+	for view in all_views():
+		if file_name(view) == path:
+			return view
 
 	return None
 
@@ -51,21 +62,21 @@ def active_view():
 
 def css_views():
 	"Returns list of opened CSS views"
-	files = []
-
-	for wnd in sublime.windows():
-		for view in wnd.views():
-			if re_css.search(view.file_name() or ''):
-				files.append(view)
-
-	return files
+	return [view for view in all_views() if is_css_view(view)]
 
 def css_files():
 	"Returns list of opened CSS files"
-	return [view.file_name() for view in css_views()]
+	return [file_name(view) for view in css_views()]
 
-def is_css_view(view):
-	return view.file_name() in css_files()
+def is_css_view(view, strict=False):
+	"Check if given view can be used for live CSS"
+	if not view.file_name():
+		# For new files, check if current scope is text.plain (just created)
+		# or `source.css` (CSS file)
+		sel = 'source.css, text.plain' if not strict else 'source.css'
+		return view.score_selector(0, sel) > 0
+
+	return view.score_selector(0, 'source.css') > 0
 
 def unindent_text(text, pad):
 	"""

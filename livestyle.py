@@ -15,6 +15,7 @@ PACKAGES_PATH = sublime.packages_path() or os.path.dirname(BASE_PATH)
 sys.path += [
 	BASE_PATH
 ]
+settings = None
 
 # don't know why, but tornado's IOLoop cannot
 # properly load platform modules during runtime, 
@@ -45,6 +46,9 @@ sublime_ver = int(sublime.version()[0])
 httpserver = None
 
 _suppressed = set()
+
+# List of all opened views and their file names
+_view_file_names = {}
 
 class WSHandler(tornado.websocket.WebSocketHandler):
 	clients = set()
@@ -126,13 +130,28 @@ def handle_patch_request(payload):
 
 	view = eutils.view_for_file(editor_file)
 	if view is None:
-		print('Unable to find view for %s file, open new one' % editor_file)
+		print('Unable to find view for %s file' % editor_file)
+		if editor_file[0] == '<':
+			# it's an untitled file, but view doesn't exists
+			return
+
 		view = sublime.active_window().open_file(editor_file)
 
 	patch = payload.get('patch')
 	if patch:
 		while view.is_loading():
 			pass
+
+		# make sure it's a CSS file
+		if not eutils.is_css_view(view, True):
+			return
+
+		# looks like view.window() is broken in ST2,
+		# use another way to find parent window
+		for w in sublime.windows():
+			for v in w.views():
+				if v.id() == view.id():
+					w.focus_view(v)
 
 		lsutils.diff.patch(view.buffer_id(), patch, apply_patched_source)
 
@@ -156,19 +175,29 @@ def should_handle(view):
 
 	# don't do anything if there are no connected clients
 	# or change performed outside of CSS file
-	return WSHandler.clients and eutils.is_css_view(view)
+	return WSHandler.clients and eutils.is_css_view(view, True)
 
 def suppress_update(view):
 	"Marks given view to skip next incoming update"
 	_suppressed.add(view.id())
 
-
 class LivestyleListener(sublime_plugin.EventListener):
+	def on_new(self, view):
+		_view_file_names[view.id()] = eutils.file_name(view)
+
+		if eutils.is_css_view(view):
+			update_files()
+
 	def on_load(self, view):
+		_view_file_names[view.id()] = eutils.file_name(view)
+
 		if eutils.is_css_view(view):
 			update_files()
 
 	def on_close(self, view):
+		if view.id() in _view_file_names:
+			del _view_file_names[view.id()]
+
 		update_files()
 
 	def on_modified(self, view):
@@ -177,9 +206,23 @@ class LivestyleListener(sublime_plugin.EventListener):
 			lsutils.diff.diff(view.buffer_id(), send_patches)
 
 	def on_activated(self, view):
-		if eutils.is_css_view(view):
+		if eutils.is_css_view(view, True):
 			print('Prepare diff')
 			lsutils.diff.prepare_diff(view.buffer_id())
+
+	def on_post_save(self, view):
+		k = view.id()
+		new_name = eutils.file_name(view)
+		if k in _view_file_names and _view_file_names[k] != new_name:
+			send_message({
+				'action': 'renameFile',
+				'data': {
+					'oldname': _view_file_names[k],
+					'newname': new_name
+				}
+			})
+			_view_file_names[k] = new_name
+
 
 class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
 	"Internal command to properly replace view content"
@@ -198,7 +241,7 @@ def start_server(port, ctx=None):
 	server = tornado.httpserver.HTTPServer(application)
 	server.listen(port, address='127.0.0.1')
 	threading.Thread(target=tornado.ioloop.IOLoop.instance().start).start()
-	globals()['httpserver'] = server	
+	globals()['httpserver'] = server
 
 def stop_server():
 	for c in WSHandler.clients.copy():
@@ -216,7 +259,16 @@ def unload_handler():
 	stop_server()
 
 def start_plugin():
-	start_server(54000)
+	globals()['settings'] = sublime.load_settings('LiveStyle.sublime-settings')
+	start_server(int(settings.get('port', 54000)))
+
+
+	# collect all view's file paths
+	for view in eutils.all_views():
+		_view_file_names[view.id()] = eutils.file_name(view)
+
+		# if not v.file_name():
+		# 	_untitled_views.add(view.id())
 
 # Init plugin
 def plugin_loaded():

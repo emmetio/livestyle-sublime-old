@@ -1,0 +1,11 @@
+{
+	// Copy any modified settings to `User/LiveStyle.sublime-settings`
+	// otherwise modifications will not survive updates.
+
+	// Websockets port
+	"port": 54000,
+
+	// Debug mode: when enabled, logs important events into
+	// ST console
+	"debug": false
+}
