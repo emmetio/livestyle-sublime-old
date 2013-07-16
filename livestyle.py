@@ -5,17 +5,17 @@ import sys
 import os.path
 import imp
 import select
+import logging
 
 import sublime
 import sublime_plugin
 
-
+DEFAULT_PORT = 5400
 BASE_PATH = os.path.abspath(os.path.dirname(__file__))
 PACKAGES_PATH = sublime.packages_path() or os.path.dirname(BASE_PATH)
 sys.path += [
 	BASE_PATH
 ]
-settings = None
 
 # don't know why, but tornado's IOLoop cannot
 # properly load platform modules during runtime, 
@@ -50,22 +50,34 @@ _suppressed = set()
 # List of all opened views and their file names
 _view_file_names = {}
 
+# Plugin settings
+settings = None
+
+# Create logger
+logger = logging.getLogger('livestyle')
+logger.propagate = False
+if not logger.handlers:
+	ch = logging.StreamHandler()
+	ch.setLevel(logging.DEBUG)
+	ch.setFormatter(logging.Formatter('Emmet LiveStyle: %(message)s'))
+	logger.addHandler(ch)
+
 class WSHandler(tornado.websocket.WebSocketHandler):
 	clients = set()
 	def open(self):
-		print('connection opened')
+		logger.info('client connected')
 		WSHandler.clients.add(self)
 		identify_editor(self)
 	
 	def on_message(self, message):
-		# print('message received:\n%s' % message)
+		logger.debug('message received:\n%s' % message)
 		message = json.loads(message)
 		if message['action'] == 'update':
 			handle_patch_request(message['data'])
 			send_message(message, exclude=self)
 
 	def on_close(self):
-		print('connection closed')
+		logger.info('client disconnected')
 		WSHandler.clients.discard(self)
 
 def send_message(message, client=None, exclude=None):
@@ -77,7 +89,7 @@ def send_message(message, client=None, exclude=None):
 		clients = [c for c in clients if c != exclude]
 
 	if not clients:
-		print("Websocket is not available: client list empty")
+		logger.warn('Websocket is not available: client list empty')
 	else:
 		for c in clients:
 			c.write_message(message)
@@ -107,7 +119,7 @@ def send_patches(buf_id=None, p=None):
 	if not buf_id or not p:
 		return
 
-	print(p)
+	logger.debug(p)
 	p = json.loads(p)
 	view = eutils.view_for_buffer_id(buf_id)
 	if p and view:
@@ -121,16 +133,16 @@ def send_patches(buf_id=None, p=None):
 
 @eutils.main_thread
 def handle_patch_request(payload):
-	print('Handle CSS patch request')
+	logger.debug('Handle CSS patch request')
 
 	editor_file = payload.get('editorFile')
 	if not editor_file:
-		print('No editor file')
+		logger.debug('No editor file in payload, skip patching')
 		return
 
 	view = eutils.view_for_file(editor_file)
 	if view is None:
-		print('Unable to find view for %s file' % editor_file)
+		logger.warn('Unable to find view for %s file' % editor_file)
 		if editor_file[0] == '<':
 			# it's an untitled file, but view doesn't exists
 			return
@@ -144,6 +156,7 @@ def handle_patch_request(payload):
 
 		# make sure it's a CSS file
 		if not eutils.is_css_view(view, True):
+			logger.debug('File %s is not CSS, aborting' % eutils.file_name(view))
 			return
 
 		# looks like view.window() is broken in ST2,
@@ -181,6 +194,11 @@ def suppress_update(view):
 	"Marks given view to skip next incoming update"
 	_suppressed.add(view.id())
 
+def handle_settings_change():
+	stop_server()
+	start_server(int(settings.get('port', DEFAULT_PORT)))
+	logger.setLevel(logging.DEBUG if settings.get('debug', False) else logging.INFO)
+
 class LivestyleListener(sublime_plugin.EventListener):
 	def on_new(self, view):
 		_view_file_names[view.id()] = eutils.file_name(view)
@@ -202,12 +220,12 @@ class LivestyleListener(sublime_plugin.EventListener):
 
 	def on_modified(self, view):
 		if should_handle(view):
-			print('Run diff')
+			logger.debug('Run diff')
 			lsutils.diff.diff(view.buffer_id(), send_patches)
 
 	def on_activated(self, view):
 		if eutils.is_css_view(view, True):
-			print('Prepare diff')
+			logger.debug('Prepare diff')
 			lsutils.diff.prepare_diff(view.buffer_id())
 
 	def on_post_save(self, view):
@@ -236,8 +254,8 @@ application = tornado.web.Application([
 	(r'/browser', WSHandler),
 ])
 
-def start_server(port, ctx=None):
-	print('Starting LiveStyle server on port %s' % port)
+def start_server(port):
+	logger.info('Starting LiveStyle server on port %s' % port)
 	server = tornado.httpserver.HTTPServer(application)
 	server.listen(port, address='127.0.0.1')
 	threading.Thread(target=tornado.ioloop.IOLoop.instance().start).start()
@@ -250,7 +268,7 @@ def stop_server():
 
 	server = globals().get('httpserver', None)
 	if server:
-		print('Stopping server')
+		logger.info('Stopping server')
 		server.stop()
 
 	tornado.ioloop.IOLoop.instance().stop()
@@ -260,15 +278,14 @@ def unload_handler():
 
 def start_plugin():
 	globals()['settings'] = sublime.load_settings('LiveStyle.sublime-settings')
-	start_server(int(settings.get('port', 54000)))
-
+	
+	start_server(int(settings.get('port', DEFAULT_PORT)))
+	logger.setLevel(logging.DEBUG if settings.get('debug', False) else logging.INFO)
+	settings.add_on_change('settings', handle_settings_change)
 
 	# collect all view's file paths
 	for view in eutils.all_views():
 		_view_file_names[view.id()] = eutils.file_name(view)
-
-		# if not v.file_name():
-		# 	_untitled_views.add(view.id())
 
 # Init plugin
 def plugin_loaded():

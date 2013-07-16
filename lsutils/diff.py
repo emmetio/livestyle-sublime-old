@@ -7,6 +7,7 @@ import os.path
 import codecs
 import time
 import json
+import logging
 
 import lsutils.editor as eutils
 
@@ -17,6 +18,7 @@ sys.path += [
 	# TODO add path for host platform
 	os.path.join(PACKAGES_PATH, 'PyV8', 'osx')
 ]
+logger = logging.getLogger('livestyle')
 
 import PyV8
 
@@ -49,7 +51,7 @@ def diff(buf_id, callback):
 	to `callback` function
 	"""
 	if buf_id not in _diff_state:
-		print('Prepare buffer')
+		logger.debug('Prepare buffer')
 		prepare_diff(buf_id)
 		callback(None)
 		return
@@ -68,7 +70,7 @@ def _run_diff(src1, src2, callback):
 	except Exception as e:
 		@eutils.main_thread
 		def _err():
-			print('Error: %s' % e)
+			logger.error('Error: %s' % e)
 			callback(None)
 
 		_err()
@@ -159,7 +161,7 @@ def _run_patch(content, patch, callback):
 	except Exception as e:
 		@eutils.main_thread
 		def _err():
-			print('Error: %s' % e)
+			logger.error('Error: %s' % e)
 			callback(None)
 
 		_err()
