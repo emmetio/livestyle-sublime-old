@@ -32,13 +32,14 @@ import tornado.websocket
 import tornado.ioloop
 import tornado.web
 
+
+# Make sure all dependencies are reloaded on upgrade
+if 'lsutils.reloader' in sys.modules:
+	imp.reload(sys.modules['lsutils.reloader'])
+import lsutils.reloader
+
 import lsutils.editor as eutils
 import lsutils.diff
-if 'lsutils.editor' in sys.modules:
-	imp.reload(sys.modules['lsutils.editor'])
-
-if 'lsutils.diff' in sys.modules:
-	imp.reload(sys.modules['lsutils.diff'])
 
 sublime_ver = int(sublime.version()[0])
 

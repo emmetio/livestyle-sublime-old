@@ -8,26 +8,99 @@ import codecs
 import time
 import json
 import logging
+import imp
 
 import lsutils.editor as eutils
+import lsutils.pyv8delegate
+import lsutils.pyv8loader
 
-is_python3 = sys.version_info[0] > 2
+sys.path += lsutils.pyv8delegate.PYV8_PATHS
 BASE_PATH = os.path.abspath(os.path.dirname(__file__))
-PACKAGES_PATH = sublime.packages_path()
-sys.path += [
-	# TODO add path for host platform
-	os.path.join(PACKAGES_PATH, 'PyV8', 'osx')
-]
 logger = logging.getLogger('livestyle')
-
-import PyV8
-
 _diff_state = {}
 _patch_state = {}
 
-def read_js(file_path):
-	with codecs.open(os.path.normpath(file_path), 'r', 'utf-8') as f:
-		return f.read()
+def read_js(file_path, use_unicode=True):
+	if hasattr(sublime, 'load_resource'):
+		rel_path = None
+		for prefix in [sublime.packages_path(), sublime.installed_packages_path()]:
+			if file_path.startswith(prefix):
+				rel_path = os.path.join('Packages', file_path[len(prefix) + 1:])
+				break
+
+		if rel_path:
+			rel_path = rel_path.replace('.sublime-package', '')
+			# for Windows we have to replace slashes
+			# print('Loading %s' % rel_path)
+			rel_path = rel_path.replace('\\', '/')
+			return sublime.load_resource(rel_path)
+
+	if use_unicode:
+		f = codecs.open(file_path, 'r', 'utf-8')
+	else:
+		f = open(file_path, 'r')
+
+	content = f.read()
+	f.close()
+
+	return content
+
+def has_pyv8():
+	"Check if PyV8 is available"
+	return 'PyV8' in sys.modules and 'PyV8' in globals()
+
+def import_pyv8():
+	if not has_pyv8():
+		# Importing non-existing modules is a bit tricky in Python:
+		# if we simply call `import PyV8` and module doesn't exists,
+		# Python will cache this failed import and will always
+		# throw exception even if this module appear in PYTHONPATH.
+		# To prevent this, we have to manually test if
+		# PyV8.py(c) exists in PYTHONPATH before importing PyV8
+		if 'PyV8' in sys.modules and 'PyV8' not in globals():
+			# PyV8 was loaded by ST, create global alias
+			print('Import 1')
+			globals()['PyV8'] = __import__('PyV8')
+		else:
+			loaded = False
+			f, bin_f = None, None
+			try:
+				f, pathname, description = imp.find_module('PyV8')
+				bin_f, bin_pathname, bin_description = imp.find_module('_PyV8')
+				if f:
+					imp.acquire_lock()
+					globals()['_PyV8'] = imp.load_module('_PyV8', bin_f, bin_pathname, bin_description)
+					globals()['PyV8'] = imp.load_module('PyV8', f, pathname, description)
+					imp.release_lock()
+					loaded = True
+			except ImportError as e:
+				print('Failed to import: %s' % e)
+				return False
+			finally:
+				# Since we may exit via an exception, close fp explicitly.
+				if f: f.close()
+				if bin_f: bin_f.close()
+
+			if not loaded:
+				print('Import 2')
+				return False
+
+		if 'PyV8' not in sys.modules:
+			# Binary is not available yet
+			print('Import 3')
+			return False
+
+		# Binary just loaded, create extensions
+		try:
+			js_livestyle = read_js(os.path.join(BASE_PATH, '..', 'livestyle-src.js'))
+		except:
+			js_livestyle = read_js(os.path.join(BASE_PATH, '..', 'livestyle.js'))
+
+		js_emmet = read_js(os.path.join(BASE_PATH, '..', 'emmet.js'))
+		js_ext = PyV8.JSExtension('livestyle', '\n'.join([js_emmet, js_livestyle]))
+
+	return True
+
 
 ###############################
 # Diff
@@ -35,6 +108,8 @@ def read_js(file_path):
 
 def prepare_diff(buf_id):
 	"Prepare buffer for diff'ing"
+	if not has_pyv8(): return
+
 	view = eutils.view_for_buffer_id(buf_id)
 	if not view:
 		return
@@ -50,6 +125,10 @@ def diff(buf_id, callback):
 	in separate thread and sends generated patch 
 	to `callback` function
 	"""
+	if not import_pyv8():
+		logger.error('PyV8 is not available')
+		return
+
 	if buf_id not in _diff_state:
 		logger.debug('Prepare buffer')
 		prepare_diff(buf_id)
@@ -111,6 +190,10 @@ def patch(buf_id, patch, callback):
 	Performs patching of given source in separate thread and dispatches
 	result into `callback` function
 	"""
+	if not import_pyv8():
+		logger.error('PyV8 is not available')
+		return
+
 	if buf_id not in _patch_state:
 		_patch_state[buf_id] = {
 			'running': False,
@@ -171,8 +254,10 @@ def _run_patch(content, patch, callback):
 # Init JS context
 ###############################
 
-js_livestyle = read_js(os.path.join(BASE_PATH, '..', 'livestyle-src.js'))
-js_emmet = read_js(os.path.join(BASE_PATH, '..', 'emmet.js'))
-js_ext = PyV8.JSExtension('livestyle', '\n'.join([js_emmet, js_livestyle]))
+def _cb(status):
+	if status:
+		import_pyv8()
 
-del js_emmet, js_livestyle
+import_pyv8()
+delegate = lsutils.pyv8delegate.LoaderDelegate(callback=_cb)
+lsutils.pyv8loader.load(lsutils.pyv8delegate.PYV8_PATHS[1], delegate)
