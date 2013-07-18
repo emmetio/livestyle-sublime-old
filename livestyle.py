@@ -90,7 +90,7 @@ def send_message(message, client=None, exclude=None):
 		clients = [c for c in clients if c != exclude]
 
 	if not clients:
-		logger.warn('Websocket is not available: client list empty')
+		logger.debug('Cannot send message, client list empty')
 	else:
 		for c in clients:
 			c.write_message(message)
