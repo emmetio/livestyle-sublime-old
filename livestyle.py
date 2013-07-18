@@ -76,6 +76,8 @@ class WSHandler(tornado.websocket.WebSocketHandler):
 		if message['action'] == 'update':
 			handle_patch_request(message['data'])
 			send_message(message, exclude=self)
+		elif message['action'] == 'error':
+			logger.error('[client] %s' % message['data']['message'])
 
 	def on_close(self):
 		logger.info('client disconnected')
