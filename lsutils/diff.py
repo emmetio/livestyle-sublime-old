@@ -59,7 +59,6 @@ def import_pyv8():
 		# PyV8.py(c) exists in PYTHONPATH before importing PyV8
 		if 'PyV8' in sys.modules and 'PyV8' not in globals():
 			# PyV8 was loaded by ST, create global alias
-			print('Import 1')
 			globals()['PyV8'] = __import__('PyV8')
 		else:
 			loaded = False
@@ -74,7 +73,7 @@ def import_pyv8():
 					imp.release_lock()
 					loaded = True
 			except ImportError as e:
-				print('Failed to import: %s' % e)
+				logger.error('Failed to import: %s' % e)
 				return False
 			finally:
 				# Since we may exit via an exception, close fp explicitly.
@@ -82,12 +81,10 @@ def import_pyv8():
 				if bin_f: bin_f.close()
 
 			if not loaded:
-				print('Import 2')
 				return False
 
 		if 'PyV8' not in sys.modules:
 			# Binary is not available yet
-			print('Import 3')
 			return False
 
 		# Binary just loaded, create extensions
@@ -111,7 +108,7 @@ def prepare_diff(buf_id):
 	if not has_pyv8(): return
 
 	view = eutils.view_for_buffer_id(buf_id)
-	if not view:
+	if view is None:
 		return
 
 	if buf_id not in _diff_state:
@@ -156,7 +153,7 @@ def _run_diff(src1, src2, callback):
 
 def _start_diff(buf_id, callback):
 	view = eutils.view_for_buffer_id(buf_id)
-	if not view:
+	if view is None:
 		return
 
 	state = _diff_state[buf_id]
@@ -217,7 +214,7 @@ def patch(buf_id, patch, callback):
 
 def _start_patch(buf_id, patch, callback):
 	view = eutils.view_for_buffer_id(buf_id)
-	if not view:
+	if view is None:
 		return
 
 	content = eutils.content(view)

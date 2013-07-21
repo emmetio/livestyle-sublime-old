@@ -125,7 +125,7 @@ def send_patches(buf_id=None, p=None):
 	logger.debug(p)
 	p = json.loads(p)
 	view = eutils.view_for_buffer_id(buf_id)
-	if p and view:
+	if p and view is not None:
 		send_message({
 			'action': 'update',
 			'data': {
@@ -162,19 +162,20 @@ def handle_patch_request(payload):
 			logger.debug('File %s is not CSS, aborting' % eutils.file_name(view))
 			return
 
-		# looks like view.window() is broken in ST2,
-		# use another way to find parent window
-		for w in sublime.windows():
-			for v in w.views():
-				if v.id() == view.id():
-					w.focus_view(v)
-
+		focus_view(view)
 		lsutils.diff.patch(view.buffer_id(), patch, apply_patched_source)
 
+def focus_view(view):
+	# looks like view.window() is broken in ST2,
+	# use another way to find parent window
+	for w in sublime.windows():
+		for v in w.views():
+			if v.id() == view.id():
+				return w.focus_view(v)
 
 def apply_patched_source(buf_id, content):
 	view = eutils.view_for_buffer_id(buf_id)
-	if not view or content is None:
+	if view is None or content is None:
 		return
 
 	if sublime_ver < 3:

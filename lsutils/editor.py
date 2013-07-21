@@ -48,6 +48,8 @@ def view_for_buffer_id(buf_id):
 		if view.buffer_id() == buf_id:
 			return view
 
+	return None
+
 def view_for_file(path):
 	"Locates editor view with given file path"
 	for view in all_views():
