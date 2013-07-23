@@ -14,13 +14,18 @@ import lsutils.editor as eutils
 import lsutils.pyv8delegate
 import lsutils.pyv8loader
 
-sys.path += lsutils.pyv8delegate.PYV8_PATHS
+
+for p in lsutils.pyv8delegate.PYV8_PATHS:
+	if p not in sys.path:
+		sys.path.append(p)
+
 BASE_PATH = os.path.abspath(os.path.dirname(__file__))
 logger = logging.getLogger('livestyle')
 _diff_state = {}
 _patch_state = {}
 
 def read_js(file_path, use_unicode=True):
+	file_path = os.path.normpath(file_path)
 	if hasattr(sublime, 'load_resource'):
 		rel_path = None
 		for prefix in [sublime.packages_path(), sublime.installed_packages_path()]:
@@ -255,6 +260,6 @@ def _cb(status):
 	if status:
 		import_pyv8()
 
-import_pyv8()
+# import_pyv8()
 delegate = lsutils.pyv8delegate.LoaderDelegate(callback=_cb)
 lsutils.pyv8loader.load(lsutils.pyv8delegate.PYV8_PATHS[1], delegate)

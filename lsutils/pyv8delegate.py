@@ -11,7 +11,8 @@ import lsutils.pyv8loader as pyv8loader
 
 logger = logging.getLogger('livestyle')
 
-PACKAGES_PATH = sublime.packages_path()
+BASE_PACKAGES_PATH = os.path.normpath( os.path.join(os.path.dirname(__file__), '..', '..', '..', 'Packages') )
+PACKAGES_PATH = sublime.packages_path() or BASE_PACKAGES_PATH
 PYV8_PATHS = [
 	os.path.join(PACKAGES_PATH, 'PyV8'),
 	os.path.join(PACKAGES_PATH, 'PyV8', pyv8loader.get_arch()),

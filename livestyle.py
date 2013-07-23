@@ -10,12 +10,9 @@ import logging
 import sublime
 import sublime_plugin
 
-DEFAULT_PORT = 5400
 BASE_PATH = os.path.abspath(os.path.dirname(__file__))
-PACKAGES_PATH = sublime.packages_path() or os.path.dirname(BASE_PATH)
-sys.path += [
-	BASE_PATH
-]
+if BASE_PATH not in sys.path:
+	sys.path.append(BASE_PATH)
 
 # don't know why, but tornado's IOLoop cannot
 # properly load platform modules during runtime, 
@@ -27,10 +24,12 @@ elif hasattr(select, "kqueue"):
 else:
 	import tornado.platform.select
 
-import tornado.httpserver
-import tornado.websocket
+# import tornado.process
 import tornado.ioloop
+import tornado.options
 import tornado.web
+import tornado.websocket
+import tornado.httpserver
 
 
 # Make sure all dependencies are reloaded on upgrade
@@ -62,26 +61,6 @@ if not logger.handlers:
 	ch.setLevel(logging.DEBUG)
 	ch.setFormatter(logging.Formatter('Emmet LiveStyle: %(message)s'))
 	logger.addHandler(ch)
-
-class WSHandler(tornado.websocket.WebSocketHandler):
-	clients = set()
-	def open(self):
-		logger.info('client connected')
-		WSHandler.clients.add(self)
-		identify_editor(self)
-	
-	def on_message(self, message):
-		logger.debug('message received:\n%s' % message)
-		message = json.loads(message)
-		if message['action'] == 'update':
-			handle_patch_request(message['data'])
-			send_message(message, exclude=self)
-		elif message['action'] == 'error':
-			logger.error('[client] %s' % message['data']['message'])
-
-	def on_close(self):
-		logger.info('client disconnected')
-		WSHandler.clients.discard(self)
 
 def send_message(message, client=None, exclude=None):
 	"Sends given message to websocket clients"
@@ -154,16 +133,20 @@ def handle_patch_request(payload):
 
 	patch = payload.get('patch')
 	if patch:
-		while view.is_loading():
-			pass
+		apply_patch_on_view(view, patch)
 
-		# make sure it's a CSS file
-		if not eutils.is_css_view(view, True):
-			logger.debug('File %s is not CSS, aborting' % eutils.file_name(view))
-			return
+def apply_patch_on_view(view, patch):
+	"Waita until view is loaded and applies patch on it"
+	if view.is_loading():
+		return sublime.set_timeout(lambda: apply_patch_on_view(view, patch), 100)
 
-		focus_view(view)
-		lsutils.diff.patch(view.buffer_id(), patch, apply_patched_source)
+	# make sure it's a CSS file
+	if not eutils.is_css_view(view, True):
+		logger.debug('File %s is not CSS, aborting' % eutils.file_name(view))
+		return
+
+	focus_view(view)
+	lsutils.diff.patch(view.buffer_id(), patch, apply_patched_source)
 
 def focus_view(view):
 	# looks like view.window() is broken in ST2,
@@ -200,7 +183,7 @@ def suppress_update(view):
 
 def handle_settings_change():
 	stop_server()
-	start_server(int(settings.get('port', DEFAULT_PORT)))
+	start_server(int(settings.get('port')))
 	logger.setLevel(logging.DEBUG if settings.get('debug', False) else logging.INFO)
 
 class LivestyleListener(sublime_plugin.EventListener):
@@ -254,26 +237,49 @@ class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
 		self.view.replace(edit, sublime.Region(0, self.view.size()), content)
 
 # XXX init
+# Server app
+
+class WSHandler(tornado.websocket.WebSocketHandler):
+	clients = set()
+	def open(self):
+		logger.info('client connected')
+		WSHandler.clients.add(self)
+		identify_editor(self)
+	
+	def on_message(self, message):
+		logger.debug('message received:\n%s' % message)
+		message = json.loads(message)
+		if message['action'] == 'update':
+			handle_patch_request(message['data'])
+			send_message(message, exclude=self)
+		elif message['action'] == 'error':
+			logger.error('[client] %s' % message['data']['message'])
+
+	def on_close(self):
+		logger.info('client disconnected')
+		WSHandler.clients.discard(self)
+
+
 application = tornado.web.Application([
 	(r'/browser', WSHandler),
 ])
 
 def start_server(port):
+	global httpserver
 	logger.info('Starting LiveStyle server on port %s' % port)
-	server = tornado.httpserver.HTTPServer(application)
-	server.listen(port, address='127.0.0.1')
+	httpserver = tornado.httpserver.HTTPServer(application)
+	httpserver.listen(port, address='127.0.0.1')
 	threading.Thread(target=tornado.ioloop.IOLoop.instance().start).start()
-	globals()['httpserver'] = server
 
 def stop_server():
+	global httpserver
 	for c in WSHandler.clients.copy():
 		c.close()
 	WSHandler.clients.clear()
 
-	server = globals().get('httpserver', None)
-	if server:
+	if httpserver:
 		logger.info('Stopping server')
-		server.stop()
+		httpserver.stop()
 
 	tornado.ioloop.IOLoop.instance().stop()
 
@@ -281,11 +287,14 @@ def unload_handler():
 	stop_server()
 
 def start_plugin():
-	globals()['settings'] = sublime.load_settings('LiveStyle.sublime-settings')
+	global settings
+	settings = sublime.load_settings('LiveStyle.sublime-settings')
 	
-	start_server(int(settings.get('port', DEFAULT_PORT)))
+	start_server(int(settings.get('port')))
 	logger.setLevel(logging.DEBUG if settings.get('debug', False) else logging.INFO)
 	settings.add_on_change('settings', handle_settings_change)
+
+	lsutils.diff.import_pyv8()
 
 	# collect all view's file paths
 	for view in eutils.all_views():

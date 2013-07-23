@@ -77,9 +77,22 @@ def bind_unused_port():
 
     Returns a tuple (socket, port).
     """
-    [sock] = netutil.bind_sockets(0, 'localhost', family=socket.AF_INET)
+    [sock] = netutil.bind_sockets(None, 'localhost', family=socket.AF_INET)
     port = sock.getsockname()[1]
     return sock, port
+
+
+def get_async_test_timeout():
+    """Get the global timeout setting for async tests.
+
+    Returns a float, the timeout in seconds.
+
+    .. versionadded:: 3.1
+    """
+    try:
+        return float(os.environ.get('ASYNC_TEST_TIMEOUT'))
+    except (ValueError, TypeError):
+        return 5
 
 
 class AsyncTestCase(unittest.TestCase):
@@ -87,12 +100,15 @@ class AsyncTestCase(unittest.TestCase):
     asynchronous code.
 
     The unittest framework is synchronous, so the test must be
-    complete by the time the test method returns.  This class provides
-    the `stop()` and `wait()` methods for this purpose.  The test
+    complete by the time the test method returns.  This means that
+    asynchronous code cannot be used in quite the same way as usual.
+    To write test functions that use the same ``yield``-based patterns
+    used with the `tornado.gen` module, decorate your test methods
+    with `tornado.testing.gen_test` instead of
+    `tornado.gen.coroutine`.  This class also provides the `stop()`
+    and `wait()` methods for a more manual style of testing.  The test
     method itself must call ``self.wait()``, and asynchronous
     callbacks should call ``self.stop()`` to signal completion.
-    Alternately, the `gen_test` decorator can be used to use yield points
-    from the `tornado.gen` module.
 
     By default, a new `.IOLoop` is constructed for each test and is available
     as ``self.io_loop``.  This `.IOLoop` should be used in the construction of
@@ -107,8 +123,17 @@ class AsyncTestCase(unittest.TestCase):
 
     Example::
 
-        # This test uses argument passing between self.stop and self.wait.
+        # This test uses coroutine style.
         class MyTestCase(AsyncTestCase):
+            @tornado.testing.gen_test
+            def test_http_fetch(self):
+                client = AsyncHTTPClient(self.io_loop)
+                response = yield client.fetch("http://www.tornadoweb.org")
+                # Test contents of response
+                self.assertIn("FriendFeed", response.body)
+
+        # This test uses argument passing between self.stop and self.wait.
+        class MyTestCase2(AsyncTestCase):
             def test_http_fetch(self):
                 client = AsyncHTTPClient(self.io_loop)
                 client.fetch("http://www.tornadoweb.org/", self.stop)
@@ -117,7 +142,7 @@ class AsyncTestCase(unittest.TestCase):
                 self.assertIn("FriendFeed", response.body)
 
         # This test uses an explicit callback-based style.
-        class MyTestCase2(AsyncTestCase):
+        class MyTestCase3(AsyncTestCase):
             def test_http_fetch(self):
                 client = AsyncHTTPClient(self.io_loop)
                 client.fetch("http://www.tornadoweb.org/", self.handle_fetch)
@@ -169,7 +194,7 @@ class AsyncTestCase(unittest.TestCase):
         return IOLoop()
 
     def _handle_exception(self, typ, value, tb):
-        self.__failure = sys.exc_info()
+        self.__failure = (typ, value, tb)
         self.stop()
         return True
 
@@ -202,14 +227,23 @@ class AsyncTestCase(unittest.TestCase):
             self.__running = False
         self.__stopped = True
 
-    def wait(self, condition=None, timeout=5):
+    def wait(self, condition=None, timeout=None):
         """Runs the `.IOLoop` until stop is called or timeout has passed.
 
-        In the event of a timeout, an exception will be thrown.
+        In the event of a timeout, an exception will be thrown. The
+        default timeout is 5 seconds; it may be overridden with a
+        ``timeout`` keyword argument or globally with the
+        ``ASYNC_TEST_TIMEOUT`` environment variable.
 
         If ``condition`` is not None, the `.IOLoop` will be restarted
         after `stop()` until ``condition()`` returns true.
+
+        .. versionchanged:: 3.1
+           Added the ``ASYNC_TEST_TIMEOUT`` environment variable.
         """
+        if timeout is None:
+            timeout = get_async_test_timeout()
+
         if not self.__stopped:
             if timeout:
                 def timeout_func():
@@ -354,7 +388,7 @@ class AsyncHTTPSTestCase(AsyncHTTPTestCase):
         return 'https'
 
 
-def gen_test(f):
+def gen_test(func=None, timeout=None):
     """Testing equivalent of ``@gen.coroutine``, to be applied to test methods.
 
     ``@gen.coroutine`` cannot be used on tests because the `.IOLoop` is not
@@ -368,13 +402,40 @@ def gen_test(f):
             def test_something(self):
                 response = yield gen.Task(self.fetch('/'))
 
-    """
-    f = gen.coroutine(f)
+    By default, ``@gen_test`` times out after 5 seconds. The timeout may be
+    overridden globally with the ``ASYNC_TEST_TIMEOUT`` environment variable,
+    or for each test with the ``timeout`` keyword argument::
 
-    @functools.wraps(f)
-    def wrapper(self):
-        return self.io_loop.run_sync(functools.partial(f, self), timeout=5)
-    return wrapper
+        class MyTest(AsyncHTTPTestCase):
+            @gen_test(timeout=10)
+            def test_something_slow(self):
+                response = yield gen.Task(self.fetch('/'))
+
+    .. versionadded:: 3.1
+       The ``timeout`` argument and ``ASYNC_TEST_TIMEOUT`` environment
+       variable.
+    """
+    if timeout is None:
+        timeout = get_async_test_timeout()
+
+    def wrap(f):
+        f = gen.coroutine(f)
+
+        @functools.wraps(f)
+        def wrapper(self):
+            return self.io_loop.run_sync(
+                functools.partial(f, self), timeout=timeout)
+        return wrapper
+
+    if func is not None:
+        # Used like:
+        #     @gen_test
+        #     def f(self):
+        #         pass
+        return wrap(func)
+    else:
+        # Used like @gen_test(timeout=10)
+        return wrap
 
 
 # Without this attribute, nosetests will try to run gen_test as a test

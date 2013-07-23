@@ -35,10 +35,10 @@ def temp_file_name(view):
 
 def all_views():
 	"Returns all view from all windows"
-	views = set()
+	views = []
 	for w in sublime.windows():
 		for v in w.views():
-			views.add(v)
+			views.append(v)
 
 	return views
 

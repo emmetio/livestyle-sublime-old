@@ -180,23 +180,23 @@ class HTTPConnection(object):
         self.no_keep_alive = no_keep_alive
         self.xheaders = xheaders
         self.protocol = protocol
-        self._request = None
-        self._request_finished = False
-        self._write_callback = None
-        self._close_callback = None
+        self._clear_request_state()
         # Save stack context here, outside of any request.  This keeps
         # contexts from one request from leaking into the next.
         self._header_callback = stack_context.wrap(self._on_headers)
+        self.stream.set_close_callback(self._on_connection_close)
         self.stream.read_until(b"\r\n\r\n", self._header_callback)
 
-    def _clear_callbacks(self):
-        """Clears the per-request callbacks.
+    def _clear_request_state(self):
+        """Clears the per-request state.
 
         This is run in between requests to allow the previous handler
         to be garbage collected (and prevent spurious close callbacks),
         and when the connection is closed (to break up cycles and
         facilitate garbage collection in cpython).
         """
+        self._request = None
+        self._request_finished = False
         self._write_callback = None
         self._close_callback = None
 
@@ -209,34 +209,35 @@ class HTTPConnection(object):
         recommended approach prior to Tornado 3.0).
         """
         self._close_callback = stack_context.wrap(callback)
-        self.stream.set_close_callback(self._on_connection_close)
 
     def _on_connection_close(self):
-        callback = self._close_callback
-        self._close_callback = None
-        callback()
+        if self._close_callback is not None:
+            callback = self._close_callback
+            self._close_callback = None
+            callback()
         # Delete any unfinished callbacks to break up reference cycles.
         self._header_callback = None
-        self._clear_callbacks()
+        self._clear_request_state()
 
     def close(self):
         self.stream.close()
         # Remove this reference to self, which would otherwise cause a
         # cycle and delay garbage collection of this connection.
         self._header_callback = None
-        self._clear_callbacks()
+        self._clear_request_state()
 
     def write(self, chunk, callback=None):
         """Writes a chunk of output to the stream."""
-        assert self._request, "Request closed"
         if not self.stream.closed():
             self._write_callback = stack_context.wrap(callback)
             self.stream.write(chunk, self._on_write_complete)
 
     def finish(self):
         """Finishes the request."""
-        assert self._request, "Request closed"
         self._request_finished = True
+        # No more data is coming, so instruct TCP to send any remaining
+        # data immediately instead of waiting for a full packet or ack.
+        self.stream.set_nodelay(True)
         if not self.stream.writing():
             self._finish_request()
 
@@ -256,7 +257,7 @@ class HTTPConnection(object):
             self._finish_request()
 
     def _finish_request(self):
-        if self.no_keep_alive:
+        if self.no_keep_alive or self._request is None:
             disconnect = True
         else:
             connection_header = self._request.headers.get("Connection")
@@ -269,9 +270,7 @@ class HTTPConnection(object):
                 disconnect = connection_header != "keep-alive"
             else:
                 disconnect = True
-        self._request = None
-        self._request_finished = False
-        self._clear_callbacks()
+        self._clear_request_state()
         if disconnect:
             self.close()
             return
@@ -280,6 +279,10 @@ class HTTPConnection(object):
             # directly, because in some cases the stream doesn't discover
             # that it's closed until you try to read from it.
             self.stream.read_until(b"\r\n\r\n", self._header_callback)
+
+            # Turn Nagle's algorithm back on, leaving the stream in its
+            # default state for the next request.
+            self.stream.set_nodelay(False)
         except iostream.StreamClosedError:
             self.close()
 
@@ -294,7 +297,11 @@ class HTTPConnection(object):
                 raise _BadRequestException("Malformed HTTP request line")
             if not version.startswith("HTTP/"):
                 raise _BadRequestException("Malformed HTTP version in HTTP Request-Line")
-            headers = httputil.HTTPHeaders.parse(data[eol:])
+            try:
+                headers = httputil.HTTPHeaders.parse(data[eol:])
+            except ValueError:
+                # Probably from split() if there was no ':' in the line
+                raise _BadRequestException("Malformed HTTP headers")
 
             # HTTPRequest wants an IP, not a full socket address
             if self.address_family in (socket.AF_INET, socket.AF_INET6):
@@ -372,7 +379,10 @@ class HTTPRequest(object):
 
        Client's IP address as a string.  If ``HTTPServer.xheaders`` is set,
        will pass along the real IP address provided by a load balancer
-       in the ``X-Real-Ip`` header
+       in the ``X-Real-Ip`` or ``X-Forwarded-For`` header.
+
+    .. versionchanged:: 3.1
+       The list format of ``X-Forwarded-For`` is now supported.
 
     .. attribute:: protocol
 
@@ -427,8 +437,10 @@ class HTTPRequest(object):
         # xheaders can override the defaults
         if connection and connection.xheaders:
             # Squid uses X-Forwarded-For, others use X-Real-Ip
+            ip = self.headers.get("X-Forwarded-For", self.remote_ip)
+            ip = ip.split(',')[-1].strip()
             ip = self.headers.get(
-                "X-Real-Ip", self.headers.get("X-Forwarded-For", self.remote_ip))
+                "X-Real-Ip", ip)
             if netutil.is_valid_ip(ip):
                 self.remote_ip = ip
             # AWS uses X-Forwarded-Proto
@@ -436,7 +448,6 @@ class HTTPRequest(object):
                 "X-Scheme", self.headers.get("X-Forwarded-Proto", self.protocol))
             if proto in ("http", "https"):
                 self.protocol = proto
-
 
         self.host = host or self.headers.get("Host") or "127.0.0.1"
         self.files = files or {}
@@ -512,8 +523,7 @@ class HTTPRequest(object):
             return None
 
     def __repr__(self):
-        attrs = ("protocol", "host", "method", "uri", "version", "remote_ip",
-                 "body")
+        attrs = ("protocol", "host", "method", "uri", "version", "remote_ip")
         args = ", ".join(["%s=%r" % (n, getattr(self, n)) for n in attrs])
         return "%s(%s, headers=%s)" % (
             self.__class__.__name__, args, dict(self.headers))
