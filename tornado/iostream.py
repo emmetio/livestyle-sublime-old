@@ -31,7 +31,7 @@ import errno
 import numbers
 import os
 import socket
-import ssl
+# import ssl
 import sys
 import re
 

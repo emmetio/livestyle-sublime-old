@@ -3,26 +3,40 @@ import re
 import threading
 import sys
 import os.path
+import platform
 import imp
-import select
 import logging
 
 import sublime
 import sublime_plugin
 
 BASE_PATH = os.path.abspath(os.path.dirname(__file__))
-if BASE_PATH not in sys.path:
-	sys.path.append(BASE_PATH)
+for p in [BASE_PATH, os.path.join(BASE_PATH, 'lsutils')]:
+	if p not in sys.path:
+		sys.path.append(p)
+
+# need the windows select.pyd binary for ST2 only
+if os.name == 'nt' and sublime.version()[0] < '3':
+	__file = os.path.normpath(os.path.abspath(__file__))
+	__path = os.path.dirname(__file)
+	libs_path = os.path.join(__path, 'lsutils', 'libs', platform.architecture()[0])
+	if libs_path not in sys.path:
+		sys.path.insert(0, libs_path)
 
 # don't know why, but tornado's IOLoop cannot
 # properly load platform modules during runtime, 
 # so we pre-import them
-if hasattr(select, "epoll"):
-	import tornado.platform.epoll
-elif hasattr(select, "kqueue"):
-	import tornado.platform.kqueue
-else:
-	import tornado.platform.select
+try:
+	import select
+
+	if hasattr(select, "epoll"):
+		import tornado.platform.epoll
+	elif hasattr(select, "kqueue"):
+		import tornado.platform.kqueue
+	else:
+		import tornado.platform.select
+except ImportError:
+	pass
 
 # import tornado.process
 import tornado.ioloop

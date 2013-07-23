@@ -20,7 +20,7 @@ from __future__ import absolute_import, division, print_function, with_statement
 import errno
 import os
 import socket
-import ssl
+# import ssl
 
 from tornado.log import app_log
 from tornado.ioloop import IOLoop

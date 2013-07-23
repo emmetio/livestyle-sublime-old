@@ -22,8 +22,9 @@ import errno
 import os
 import re
 import socket
-import ssl
+# import ssl
 import stat
+ssl = {}
 
 from tornado.concurrent import dummy_executor, run_on_executor
 from tornado.ioloop import IOLoop
@@ -388,7 +389,7 @@ def ssl_wrap_socket(socket, ssl_options, server_hostname=None, **kwargs):
     else:
         return ssl.wrap_socket(socket, **dict(context, **kwargs))
 
-if hasattr(ssl, 'match_hostname') and hasattr(ssl, 'CertificateError'):  # python 3.2+
+if ssl and hasattr(ssl, 'match_hostname') and hasattr(ssl, 'CertificateError'):  # python 3.2+
     ssl_match_hostname = ssl.match_hostname
     SSLCertificateError = ssl.CertificateError
 else:

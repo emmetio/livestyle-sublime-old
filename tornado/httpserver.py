@@ -27,7 +27,7 @@ This module also defines the `HTTPRequest` class which is exposed via
 from __future__ import absolute_import, division, print_function, with_statement
 
 import socket
-import ssl
+# import ssl
 import time
 
 from tornado.escape import native_str, parse_qs_bytes

@@ -17,7 +17,7 @@ import functools
 import os.path
 import re
 import socket
-import ssl
+# import ssl
 import sys
 
 try:
