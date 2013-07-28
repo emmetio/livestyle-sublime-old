@@ -254,6 +254,9 @@ class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
 class LivestyleApplyPatch(sublime_plugin.TextCommand):
 	"Applies LiveStyle patch to active view"
 	def run(self, edit, **kw):
+		if not eutils.is_css_view(self.view, True):
+			return sublime.error_message('You should run this action on CSS file')
+
 		# build sources list
 		sources = [view for view in eutils.all_views() if re.search(r'[\/\\]lspatch-[\w\-]+\.json$', view.file_name() or '')]
 
@@ -282,6 +285,9 @@ class LivestyleApplyPatch(sublime_plugin.TextCommand):
 			on_done(0)
 		elif display_items:
 			self.view.window().show_quick_panel(display_items, on_done)
+		else:
+			sublime.error_message('No patches found. You have to open patch files in Sublime Text or copy patch file contents into clipboard and run this action again.')
+
 
 # XXX init
 # Server app
