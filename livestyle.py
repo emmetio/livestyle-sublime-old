@@ -6,6 +6,7 @@ import os.path
 import platform
 import imp
 import logging
+import json
 
 import sublime
 import sublime_plugin
@@ -249,6 +250,38 @@ class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
 		# _cache['supress_modification'] = True
 		suppress_update(self.view)
 		self.view.replace(edit, sublime.Region(0, self.view.size()), content)
+
+class LivestyleApplyPatch(sublime_plugin.TextCommand):
+	"Applies LiveStyle patch to active view"
+	def run(self, edit, **kw):
+		# build sources list
+		sources = [view for view in eutils.all_views() if re.search(r'[\/\\]lspatch-[\w\-]+\.json$', view.file_name() or '')]
+
+		# gather all available items
+		display_items = []
+		patches = []
+
+		def add_item(patch, name):
+			for p in patch:
+				display_items.append([p['file'], 'Updated selectors: %s' % ', '.join(p['selectors']), name])
+				patches.append(json.dumps(p['data']))
+
+		for view in sources:
+			add_item(lsutils.diff.parse_patch(eutils.content(view)), view.file_name())
+
+		# check if buffer contains valid patch
+		pb =  sublime.get_clipboard()
+		if lsutils.diff.is_valid_patch(pb):
+			add_item(lsutils.diff.parse_patch(pb), 'Clipboard')
+
+		def on_done(ix):
+			if ix == -1: return
+			apply_patch_on_view(self.view, patches[ix])
+
+		if len(display_items) == 1:
+			on_done(0)
+		elif display_items:
+			self.view.window().show_quick_panel(display_items, on_done)
 
 # XXX init
 # Server app

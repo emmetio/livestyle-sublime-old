@@ -1,0 +1,6 @@
+[
+	{
+		"caption": "LiveStyle: Apply Patch",
+		"command": "livestyle_apply_patch"
+	}
+]

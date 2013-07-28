@@ -14,10 +14,17 @@ import lsutils.editor as eutils
 import lsutils.pyv8delegate
 import lsutils.pyv8loader
 
-
 for p in lsutils.pyv8delegate.PYV8_PATHS:
 	if p not in sys.path:
 		sys.path.append(p)
+
+try:
+	isinstance("", basestring)
+	def isstr(s):
+		return isinstance(s, basestring)
+except NameError:
+	def isstr(s):
+		return isinstance(s, str)
 
 BASE_PATH = os.path.abspath(os.path.dirname(__file__))
 logger = logging.getLogger('livestyle')
@@ -250,6 +257,48 @@ def _run_patch(content, patch, callback):
 			callback(None)
 
 		_err()
+
+def is_valid_patch(content):
+	"Check if given content is a valid patch"
+	if isstr(content):
+		try:
+			content = json.loads(content)
+		except:
+			return False
+
+	try:
+		return content and content.get('id') == 'livestyle'
+	except:
+		return False
+
+def parse_patch(data):
+	"Parses given patch and returns object with meta-data about patch"
+	if not is_valid_patch(data):
+		return None
+
+	if isstr(data): data = json.loads(data)
+	out = []
+	for k, v in data.get('files', {}).items():
+		out.append({
+			'file': k,
+			'selectors': _stringify_selectors(v),
+			'data': v
+		})
+
+	return out
+
+def _stringify_selectors(patch):
+	"Stringifies updated selectors. Mostly used for deceision making"
+	out = []
+	for p in patch:
+		if p['action'] == 'remove':
+			# No need to display removed selectors since, in most cases,
+			# they are mostly garbage left during typing
+			continue
+
+		out.append('/'.join(s[0] for s in p['path']))
+
+	return out
 
 
 ###############################
