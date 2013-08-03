@@ -2,5 +2,9 @@
 	{
 		"caption": "LiveStyle: Apply Patch",
 		"command": "livestyle_apply_patch"
+	},
+	{
+		"caption": "LiveStyle: Install WebKit extension",
+		"command": "livestyle_install_webkit_ext"
 	}
 ]

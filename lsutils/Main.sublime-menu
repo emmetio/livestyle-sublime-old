@@ -1,0 +1,16 @@
+[
+    {
+        "caption": "Tools",
+        "mnemonic": "T",
+        "id": "tools",
+        "children":
+        [
+            { "caption": "-", "platform": "OSX" },
+            {
+                "command": "livestyle_install_webkit_ext",
+                "caption": "Install LiveStyle for WebKit extension",
+                "platform": "OSX"
+            }
+        ]
+    }
+]

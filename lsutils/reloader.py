@@ -12,6 +12,7 @@ for mod in sys.modules:
 
 mods_load_order = [
 	'lsutils.editor',
+	'lsutils.webkit_installer',
 	'lsutils.pyv8loader',
 	'lsutils.pyv8delegate',
 	'lsutils.diff'

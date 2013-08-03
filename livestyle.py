@@ -54,6 +54,7 @@ import lsutils.reloader
 
 import lsutils.editor as eutils
 import lsutils.diff
+import lsutils.webkit_installer
 
 sublime_ver = int(sublime.version()[0])
 
@@ -246,10 +247,22 @@ class LivestyleListener(sublime_plugin.EventListener):
 
 class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
 	"Internal command to properly replace view content"
-	def run(self, edit, content=None, **kw):
-		# _cache['supress_modification'] = True
+	def run(self, edit, content=None, **kwargs):
 		suppress_update(self.view)
 		self.view.replace(edit, sublime.Region(0, self.view.size()), content)
+
+class LivestyleInstallWebkitExt(sublime_plugin.ApplicationCommand):
+	def run(self, *args, **kw):
+		try:
+			lsutils.webkit_installer.install()
+			sublime.message_dialog('WebKit extension installed successfully. Please restart WebKit.')
+		except lsutils.webkit_installer.LSIException as e:
+			sublime.error_message('Unable to install WebKit extension:\n%s' % e.message)
+		except Exception as e:
+			sublime.error_message('Error during WebKit extension installation:\n%s' % e)
+
+	def description(*args, **kwargs):
+		return 'Install LiveStyle for WebKit extension'
 
 class LivestyleApplyPatch(sublime_plugin.TextCommand):
 	"Applies LiveStyle patch to active view"
