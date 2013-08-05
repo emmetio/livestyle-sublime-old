@@ -1,13 +1,18 @@
 "LiveStyle for WebKit extension installer"
 import os
 import re
-import io
 import os.path
 import plistlib
 import platform
 import zipfile
 import sublime
 import logging
+
+try:
+	# in Linux, it throws exception
+	import io
+except:
+	pass
 
 WEBKIT_PATH     = '/Applications/WebKit.app'
 WEBKIT_RES_PATH = 'Contents/Frameworks/%s/WebInspectorUI.framework/Resources'
