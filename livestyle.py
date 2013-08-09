@@ -198,6 +198,9 @@ def suppress_update(view):
 	_suppressed.add(view.id())
 
 def handle_settings_change():
+	if not settings: 
+		return
+
 	stop_server()
 	start_server(int(settings.get('port')))
 	logger.setLevel(logging.DEBUG if settings.get('debug', False) else logging.INFO)
@@ -319,15 +322,20 @@ class WSHandler(tornado.websocket.WebSocketHandler):
 			handle_patch_request(message['data'])
 			send_message(message, exclude=self)
 		elif message['action'] == 'error':
-			logger.error('[client] %s' % message['data']['message'])
+			logger.error('[client] %s' % message['data'].get('message'))
 
 	def on_close(self):
 		logger.info('client disconnected')
 		WSHandler.clients.discard(self)
 
 
+class LiveStyleIDHandler(tornado.web.RequestHandler):
+	def get(self):
+		self.write('LiveStyle websockets server is up and running')
+
 application = tornado.web.Application([
 	(r'/browser', WSHandler),
+	(r'/', LiveStyleIDHandler)
 ])
 
 def start_server(port):
