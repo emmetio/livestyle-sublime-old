@@ -116,9 +116,12 @@ def get_loader_config(path):
 
 	config_path = os.path.join(path, 'config.json')
 	if os.path.exists(config_path):
-		with open(config_path) as fd:
-			for k,v in json.load(fd).items():
-				config[k] = v
+		try:
+			with open(config_path) as fd:
+				for k,v in json.load(fd).items():
+					config[k] = v
+		except:
+			pass
 
 	return config
 
