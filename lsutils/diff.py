@@ -157,11 +157,11 @@ def _run_diff(src1, src2, callback):
 			callback(patches)
 	except Exception as e:
 		@eutils.main_thread
-		def _err():
+		def _err(e):
 			logger.error('Error: %s' % e)
 			callback(None)
 
-		_err()
+		_err(e)
 
 def _start_diff(buf_id, callback):
 	view = eutils.view_for_buffer_id(buf_id)
