@@ -180,7 +180,7 @@ def apply_patched_source(buf_id, content):
 	if sublime_ver < 3:
 		content = content.decode('utf-8')
 
-	view.run_command('livestyle_replace_content', {'content': content})
+	view.run_command('livestyle_replace_content', {'payload': content})
 
 
 def should_handle(view):
@@ -249,10 +249,30 @@ class LivestyleListener(sublime_plugin.EventListener):
 
 
 class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
-	"Internal command to properly replace view content"
-	def run(self, edit, content=None, **kwargs):
+	"Internal command to psroperly replace view content"
+	def run(self, edit, payload=None, **kwargs):
+		if not payload:
+			return
+
 		suppress_update(self.view)
-		self.view.replace(edit, sublime.Region(0, self.view.size()), content)
+		s = self.view.sel()[0]
+		sels = [[s.a, s.a]]
+		
+		try:
+			payload = json.loads(payload)
+		except:
+			payload = {'content': payload, 'selection': None}
+
+		self.view.replace(edit, sublime.Region(0, self.view.size()), payload.get('content'))
+
+		if payload.get('selection'):
+			sels = [payload.get('selection')]
+
+		self.view.sel().clear()
+		for s in sels:
+			self.view.sel().add(sublime.Region(s[0], s[1]))
+
+		self.view.show(self.view.sel())
 
 class LivestyleInstallWebkitExt(sublime_plugin.ApplicationCommand):
 	def run(self, *args, **kw):

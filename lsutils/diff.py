@@ -110,6 +110,8 @@ def import_pyv8():
 
 	return True
 
+def get_syntax(view):
+	return view.score_selector(0, 'source.less, source.scss') and 'scss' or 'css'
 
 ###############################
 # Diff
@@ -150,10 +152,10 @@ def diff(buf_id, callback):
 	else:
 		_start_diff(buf_id, callback)
 
-def _run_diff(src1, src2, callback):
+def _run_diff(src1, src2, syntax, callback):
 	try:
 		with PyV8.JSContext(extensions=['livestyle']) as c:
-			patches = c.locals.livestyle.diff(src1, src2)
+			patches = c.locals.livestyle.diff(src1, src2, syntax)
 			callback(patches)
 	except Exception as e:
 		@eutils.main_thread
@@ -171,6 +173,7 @@ def _start_diff(buf_id, callback):
 	state = _diff_state[buf_id]
 	prev_content = state['content']
 	content = eutils.content(view)
+	syntax = get_syntax(view)
 
 	@eutils.main_thread
 	def _c(result):
@@ -188,7 +191,7 @@ def _start_diff(buf_id, callback):
 	state['required'] = False
 	state['running'] = True
 	with PyV8.JSLocker():
-		threading.Thread(target=_run_diff, args=(prev_content, content, _c)).start()
+		threading.Thread(target=_run_diff, args=(prev_content, content, syntax, _c)).start()
 
 ###############################
 # Patch
@@ -230,6 +233,7 @@ def _start_patch(buf_id, patch, callback):
 		return
 
 	content = eutils.content(view)
+	syntax = get_syntax(view)
 
 	@eutils.main_thread
 	def _c(result):
@@ -243,17 +247,17 @@ def _start_patch(buf_id, patch, callback):
 
 	_patch_state[buf_id]['running'] = True
 	with PyV8.JSLocker():
-		threading.Thread(target=_run_patch, args=(content, patch, _c)).start()
+		threading.Thread(target=_run_patch, args=(content, patch, syntax, _c)).start()
 
-def _run_patch(content, patch, callback):
+def _run_patch(content, patch, syntax, callback):
 	try:
 		with PyV8.JSContext(extensions=['livestyle']) as c:
-			result = c.locals.livestyle.patch(content, patch)
+			result = c.locals.livestyle.patchAndDiff(content, patch, syntax)
 			callback(result)
 	except Exception as e:
 		@eutils.main_thread
 		def _err(e):
-			logger.error('Error: %s' % e)
+			logger.error('Error while patching: %s' % e)
 			callback(None)
 
 		_err(e)

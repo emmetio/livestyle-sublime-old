@@ -7,5 +7,16 @@
 
 	// Debug mode: when enabled, logs important events into
 	// ST console
-	"debug": false
+	"debug": false,
+
+	// WARNING! PREPROCESSOR SUPPORT IS HIGHLY EXPERIMENTAL
+	// AND WORKS FOR VERY BASIC STYLESHEETS.
+	// ENABLING LIVESTYLE FOR PREPROCESSORS MAY EVEN BREAK
+	// YOUR STYLESHEET SO USE IT AT YOUR OWN RISK!
+	// 
+	// A scope selector for files that should be handled by LiveStyle.
+	// Currently, works for syntaxes that are very close to CSS: LESS and SCSS
+	// If you want to add LESS and SCSS support, change the value of this
+	// property to "source.css, source.scss"
+	"css_files_selector": "source.css - source.css.less"
 }

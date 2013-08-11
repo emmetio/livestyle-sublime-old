@@ -8,6 +8,7 @@ import sublime_plugin
 import re
 
 re_css = re.compile(r'\.css$', re.IGNORECASE)
+_settings = None
 
 try:
 	isinstance("", basestring)
@@ -19,7 +20,15 @@ except NameError:
 
 def main_thread(fn):
 	"Run function in main thread"
-	return lambda *args, **kwargs: sublime.set_timeout(lambda: fn(*args, **kwargs), 0)
+	return lambda *args, **kwargs: sublime.set_timeout(lambda: fn(*args, **kwargs), 1)
+
+def get_setting(name, default=None):
+	global _settings
+	if not _settings:
+		_settings = sublime.load_settings('LiveStyle.sublime-settings')
+
+	return _settings.get(name, default)
+
 
 def content(view):
 	"Returns content of given view"
@@ -72,14 +81,13 @@ def css_files():
 
 def is_css_view(view, strict=False):
 	"Check if given view can be used for live CSS"
-	if not view.file_name():
+	sel = get_setting('css_files_selector', 'source.css - source.css.less')
+	if not view.file_name() and not strict:
 		# For new files, check if current scope is text.plain (just created)
-		# or it’s a strict CSS
-		css_sel = 'source.css - source.css.less'
-		sel = '%s, text.plain' % css_sel if not strict else css_sel
-		return view.score_selector(0, sel) > 0
+		# or it's a strict CSS
+		sel = '%s, text.plain' % sel
 
-	return view.score_selector(0, 'source.css') > 0
+	return view.score_selector(0, sel) > 0
 
 def unindent_text(text, pad):
 	"""
