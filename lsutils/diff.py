@@ -252,11 +252,11 @@ def _run_patch(content, patch, callback):
 			callback(result)
 	except Exception as e:
 		@eutils.main_thread
-		def _err():
+		def _err(e):
 			logger.error('Error: %s' % e)
 			callback(None)
 
-		_err()
+		_err(e)
 
 def is_valid_patch(content):
 	"Check if given content is a valid patch"

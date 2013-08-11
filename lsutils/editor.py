@@ -74,8 +74,9 @@ def is_css_view(view, strict=False):
 	"Check if given view can be used for live CSS"
 	if not view.file_name():
 		# For new files, check if current scope is text.plain (just created)
-		# or `source.css` (CSS file)
-		sel = 'source.css, text.plain' if not strict else 'source.css'
+		# or it’s a strict CSS
+		css_sel = 'source.css - source.css.less'
+		sel = '%s, text.plain' % css_sel if not strict else css_sel
 		return view.score_selector(0, sel) > 0
 
 	return view.score_selector(0, 'source.css') > 0
