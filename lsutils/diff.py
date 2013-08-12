@@ -153,16 +153,20 @@ def diff(buf_id, callback):
 		_start_diff(buf_id, callback)
 
 def _run_diff(src1, src2, syntax, callback):
+	# @eutils.main_thread
+	def _err(e):
+		logger.error('Error: %s' % e)
+		callback(None)
+
 	try:
 		with PyV8.JSContext(extensions=['livestyle']) as c:
-			patches = c.locals.livestyle.diff(src1, src2, syntax)
-			callback(patches)
+			r = c.locals.livestyle.diff(src1, src2, syntax)
+			result = json.loads(c.locals.livestyle.diff(src1, src2, syntax))
+			if result['status'] == 'ok':
+				callback(result['patches'])
+			else:
+				_err(result['error'])
 	except Exception as e:
-		@eutils.main_thread
-		def _err(e):
-			logger.error('Error: %s' % e)
-			callback(None)
-
 		_err(e)
 
 def _start_diff(buf_id, callback):
@@ -190,6 +194,7 @@ def _start_diff(buf_id, callback):
 	
 	state['required'] = False
 	state['running'] = True
+
 	with PyV8.JSLocker():
 		threading.Thread(target=_run_diff, args=(prev_content, content, syntax, _c)).start()
 
@@ -250,16 +255,19 @@ def _start_patch(buf_id, patch, callback):
 		threading.Thread(target=_run_patch, args=(content, patch, syntax, _c)).start()
 
 def _run_patch(content, patch, syntax, callback):
+	def _err(e):
+		logger.error('Error while patching: %s' % e)
+		callback(None)
+
 	try:
 		with PyV8.JSContext(extensions=['livestyle']) as c:
-			result = c.locals.livestyle.patchAndDiff(content, patch, syntax)
-			callback(result)
+			r = c.locals.livestyle.patchAndDiff(content, patch, syntax)
+			result = json.loads(r)
+			if result['status'] == 'ok':
+				callback(result)
+			else:
+				_err(result['error'])
 	except Exception as e:
-		@eutils.main_thread
-		def _err(e):
-			logger.error('Error while patching: %s' % e)
-			callback(None)
-
 		_err(e)
 
 def is_valid_patch(content):

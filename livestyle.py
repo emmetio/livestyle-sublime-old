@@ -92,6 +92,10 @@ def send_message(message, client=None, exclude=None):
 		for c in clients:
 			c.write_message(message)
 
+
+def parse_json(data):
+	return json.loads(data) if eutils.isstr(data) else data
+
 @eutils.main_thread
 def identify_editor(socket):
 	"Sends editor identification info to browser"
@@ -117,8 +121,7 @@ def send_patches(buf_id=None, p=None):
 	if not buf_id or not p:
 		return
 
-	logger.debug(p)
-	p = json.loads(p)
+	p = parse_json(p)
 	view = eutils.view_for_buffer_id(buf_id)
 	if p and view is not None:
 		send_message({
@@ -259,7 +262,7 @@ class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
 		sels = [[s.a, s.a]]
 		
 		try:
-			payload = json.loads(payload)
+			payload = parse_json(payload)
 		except:
 			payload = {'content': payload, 'selection': None}
 
