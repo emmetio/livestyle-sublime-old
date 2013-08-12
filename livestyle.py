@@ -180,9 +180,6 @@ def apply_patched_source(buf_id, content):
 	if view is None or content is None:
 		return
 
-	if sublime_ver < 3:
-		content = content.decode('utf-8')
-
 	view.run_command('livestyle_replace_content', {'payload': content})
 
 
@@ -265,6 +262,9 @@ class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
 			payload = parse_json(payload)
 		except:
 			payload = {'content': payload, 'selection': None}
+
+		if sublime_ver < 3:
+			payload['content'] = payload.get('content', '').decode('utf-8')
 
 		self.view.replace(edit, sublime.Region(0, self.view.size()), payload.get('content'))
 
