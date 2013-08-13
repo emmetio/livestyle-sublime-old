@@ -30,6 +30,7 @@ BASE_PATH = os.path.abspath(os.path.dirname(__file__))
 logger = logging.getLogger('livestyle')
 _diff_state = {}
 _patch_state = {}
+_js_global = None
 
 def read_js(file_path, use_unicode=True):
 	file_path = os.path.normpath(file_path)
@@ -62,6 +63,7 @@ def has_pyv8():
 	return 'PyV8' in sys.modules and 'PyV8' in globals()
 
 def import_pyv8():
+	global _js_global
 	if not has_pyv8():
 		# Importing non-existing modules is a bit tricky in Python:
 		# if we simply call `import PyV8` and module doesn't exists,
@@ -108,10 +110,19 @@ def import_pyv8():
 		js_emmet = read_js(os.path.join(BASE_PATH, '..', 'emmet.js'))
 		js_ext = PyV8.JSExtension('livestyle', '\n'.join([js_emmet, js_livestyle]))
 
+		class Global(PyV8.JSClass):
+			def log(self, message):
+				logger.debug(message)
+
+		_js_global = Global()
+
 	return True
 
 def get_syntax(view):
 	return view.score_selector(0, 'source.less, source.scss') and 'scss' or 'css'
+
+def js():
+	return PyV8.JSContext(_js_global, extensions=['livestyle'])
 
 ###############################
 # Diff
@@ -155,11 +166,11 @@ def diff(buf_id, callback):
 def _run_diff(src1, src2, syntax, callback):
 	# @eutils.main_thread
 	def _err(e):
-		logger.error('Error: %s' % e)
+		logger.error(e)
 		callback(None)
 
 	try:
-		with PyV8.JSContext(extensions=['livestyle']) as c:
+		with js() as c:
 			r = c.locals.livestyle.diff(src1, src2, syntax)
 			result = json.loads(c.locals.livestyle.diff(src1, src2, syntax))
 			if result['status'] == 'ok':
@@ -224,7 +235,7 @@ def patch(buf_id, patch, callback):
 			patch = json.dumps(patch)
 
 		with PyV8.JSLocker():
-			with PyV8.JSContext(extensions=['livestyle']) as c:
+			with js() as c:
 				state['patches'] = c.locals.livestyle.condensePatches(state['patches'], patch)
 
 	if not state['running'] and state['patches']:
@@ -260,7 +271,7 @@ def _run_patch(content, patch, syntax, callback):
 		callback(None)
 
 	try:
-		with PyV8.JSContext(extensions=['livestyle']) as c:
+		with js() as c:
 			r = c.locals.livestyle.patchAndDiff(content, patch, syntax)
 			result = json.loads(r)
 			if result['status'] == 'ok':
