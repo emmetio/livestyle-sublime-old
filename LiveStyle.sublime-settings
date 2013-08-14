@@ -1,6 +1,9 @@
 {
 	// Copy any modified settings to `User/LiveStyle.sublime-settings`
 	// otherwise modifications will not survive updates.
+	// 
+	// YOU MUST RESTART EDITOR TO APPLY CHANGES
+	// 
 
 	// Websockets port
 	"port": 54000,
