@@ -29,6 +29,8 @@ def get_setting(name, default=None):
 
 	return _settings.get(name, default)
 
+def parse_json(data):
+	return json.loads(data) if isstr(data) else data
 
 def content(view):
 	"Returns content of given view"

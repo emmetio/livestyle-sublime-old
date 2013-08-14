@@ -11,10 +11,10 @@ for mod in sys.modules:
 		reload_mods.append(mod)
 
 mods_load_order = [
+	'lsutils.event_dispatcher',
 	'lsutils.editor',
+	'lsutils.websockets',
 	'lsutils.webkit_installer',
-	'lsutils.pyv8loader',
-	'lsutils.pyv8delegate',
 	'lsutils.diff'
 ]
 

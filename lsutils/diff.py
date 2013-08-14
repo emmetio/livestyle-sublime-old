@@ -11,118 +11,43 @@ import logging
 import imp
 
 import lsutils.editor as eutils
-import lsutils.pyv8delegate
-import lsutils.pyv8loader
+import lsutils.websockets as ws
 
-for p in lsutils.pyv8delegate.PYV8_PATHS:
-	if p not in sys.path:
-		sys.path.append(p)
+from lsutils.event_dispatcher import EventDispatcher
 
-try:
-	isinstance("", basestring)
-	def isstr(s):
-		return isinstance(s, basestring)
-except NameError:
-	def isstr(s):
-		return isinstance(s, str)
+LOCK_TIMEOUT = 15 # State lock timeout, in seconds
 
-BASE_PATH = os.path.abspath(os.path.dirname(__file__))
 logger = logging.getLogger('livestyle')
 _diff_state = {}
 _patch_state = {}
-_js_global = None
+_dispatcher = EventDispatcher()
 
-def read_js(file_path, use_unicode=True):
-	file_path = os.path.normpath(file_path)
-	if hasattr(sublime, 'load_resource'):
-		rel_path = None
-		for prefix in [sublime.packages_path(), sublime.installed_packages_path()]:
-			if file_path.startswith(prefix):
-				rel_path = os.path.join('Packages', file_path[len(prefix) + 1:])
-				break
+def on(name, callback):
+	_dispatcher.on(name, callback)
 
-		if rel_path:
-			rel_path = rel_path.replace('.sublime-package', '')
-			# for Windows we have to replace slashes
-			# print('Loading %s' % rel_path)
-			rel_path = rel_path.replace('\\', '/')
-			return sublime.load_resource(rel_path)
+def off(name, callback=None):
+	_dispatcher.off(name, callback)
 
-	if use_unicode:
-		f = codecs.open(file_path, 'r', 'utf-8')
-	else:
-		f = open(file_path, 'r')
-
-	content = f.read()
-	f.close()
-
-	return content
-
-def has_pyv8():
-	"Check if PyV8 is available"
-	return 'PyV8' in sys.modules and 'PyV8' in globals()
-
-def import_pyv8():
-	global _js_global
-	if not has_pyv8():
-		# Importing non-existing modules is a bit tricky in Python:
-		# if we simply call `import PyV8` and module doesn't exists,
-		# Python will cache this failed import and will always
-		# throw exception even if this module appear in PYTHONPATH.
-		# To prevent this, we have to manually test if
-		# PyV8.py(c) exists in PYTHONPATH before importing PyV8
-		if 'PyV8' in sys.modules and 'PyV8' not in globals():
-			# PyV8 was loaded by ST, create global alias
-			globals()['PyV8'] = __import__('PyV8')
-		else:
-			loaded = False
-			f, bin_f = None, None
-			try:
-				f, pathname, description = imp.find_module('PyV8')
-				bin_f, bin_pathname, bin_description = imp.find_module('_PyV8')
-				if f:
-					imp.acquire_lock()
-					globals()['_PyV8'] = imp.load_module('_PyV8', bin_f, bin_pathname, bin_description)
-					globals()['PyV8'] = imp.load_module('PyV8', f, pathname, description)
-					imp.release_lock()
-					loaded = True
-			except ImportError as e:
-				logger.error('Failed to import: %s' % e)
-				return False
-			finally:
-				# Since we may exit via an exception, close fp explicitly.
-				if f: f.close()
-				if bin_f: bin_f.close()
-
-			if not loaded:
-				return False
-
-		if 'PyV8' not in sys.modules:
-			# Binary is not available yet
-			return False
-
-		# Binary just loaded, create extensions
-		try:
-			js_livestyle = read_js(os.path.join(BASE_PATH, '..', 'livestyle-src.js'))
-		except:
-			js_livestyle = read_js(os.path.join(BASE_PATH, '..', 'livestyle.js'))
-
-		js_emmet = read_js(os.path.join(BASE_PATH, '..', 'emmet.js'))
-		js_ext = PyV8.JSExtension('livestyle', '\n'.join([js_emmet, js_livestyle]))
-
-		class Global(PyV8.JSClass):
-			def log(self, message):
-				logger.debug(message)
-
-		_js_global = Global()
-
-	return True
+def one(name, callback):
+	_dispatcher.one(name, callback)
 
 def get_syntax(view):
 	return view.score_selector(0, 'source.less, source.scss') and 'scss' or 'css'
 
-def js():
-	return PyV8.JSContext(_js_global, extensions=['livestyle'])
+def lock_state(state):
+	state['running'] = True
+	state['start_time'] = time.time()
+
+def unlock_state(state, log_message=None):
+	state['running'] = False
+	if log_message:
+		logger.debug(log_message % (time.time() - state['start_time'], ))
+
+def is_locked(state):
+	if state['running']:
+		return time.time() - state['start_time'] < LOCK_TIMEOUT
+
+	return False
 
 ###############################
 # Diff
@@ -130,57 +55,36 @@ def js():
 
 def prepare_diff(buf_id):
 	"Prepare buffer for diff'ing"
-	if not has_pyv8(): return
-
 	view = eutils.view_for_buffer_id(buf_id)
 	if view is None:
 		return
 
 	if buf_id not in _diff_state:
-		_diff_state[buf_id] = {'running': False, 'required': False, 'content': ''}
+		_diff_state[buf_id] = {
+			'running': False, 
+			'required': False, 
+			'content': '', 
+			'start_time': 0
+		}
 
 	_diff_state[buf_id]['content'] = eutils.content(view)
 
-def diff(buf_id, callback):
+def diff(buf_id):
 	"""
 	Performs diff'ing of two states of the same file
-	in separate thread and sends generated patch 
-	to `callback` function
+	in separate thread
 	"""
-	if not import_pyv8():
-		logger.error('PyV8 is not available')
-		return
-
 	if buf_id not in _diff_state:
 		logger.debug('Prepare buffer')
 		prepare_diff(buf_id)
-		callback(None)
-		return
 
 	state = _diff_state[buf_id]
-	if state['running']:
+	if is_locked(state):
 		state['required'] = True
 	else:
-		_start_diff(buf_id, callback)
+		_start_diff(buf_id)
 
-def _run_diff(src1, src2, syntax, callback):
-	# @eutils.main_thread
-	def _err(e):
-		logger.error(e)
-		callback(None)
-
-	try:
-		with js() as c:
-			r = c.locals.livestyle.diff(src1, src2, syntax)
-			result = json.loads(c.locals.livestyle.diff(src1, src2, syntax))
-			if result['status'] == 'ok':
-				callback(result['patches'])
-			else:
-				_err(result['error'])
-	except Exception as e:
-		_err(e)
-
-def _start_diff(buf_id, callback):
+def _start_diff(buf_id):
 	view = eutils.view_for_buffer_id(buf_id)
 	if view is None:
 		return
@@ -190,100 +94,106 @@ def _start_diff(buf_id, callback):
 	content = eutils.content(view)
 	syntax = get_syntax(view)
 
-	@eutils.main_thread
-	def _c(result):
-		callback(buf_id, result)
-
-		if buf_id in _diff_state:
-			state = _diff_state[buf_id]
-			state['running'] = False
-			if result is not None:
-				state['content'] = content
-
-			if state['required']:
-				diff(buf_id, callback)
-	
 	state['required'] = False
-	state['running'] = True
 
-	with PyV8.JSLocker():
-		threading.Thread(target=_run_diff, args=(prev_content, content, syntax, _c)).start()
+	client = ws.find_client({'supports': 'css'})
+
+	if client:
+		logger.debug('Use connected "%s" client for diff' % client.name())
+		lock_state(state)
+		ws.send({
+			'action': 'diff',
+			'data': {
+				'file': buf_id,
+				'syntax': syntax,
+				'source1': prev_content,
+				'source2': content
+			}
+		}, client)
+	else:
+		logger.error('No suitable client for diff')
+		
+def _on_diff_complete(buf_id, patches, content):
+	_dispatcher.trigger('diff_complete', buf_id, patches)
+
+	if buf_id in _diff_state:
+		state = _diff_state[buf_id]
+		unlock_state(state, 'Diff performed in %.4fs')
+		if patches is not None:
+			state['content'] = content
+
+		if state['required']:
+			diff(buf_id)
 
 ###############################
 # Patch
 ###############################
 
-def patch(buf_id, patch, callback):
+def patch(buf_id, patches):
 	"""
-	Performs patching of given source in separate thread and dispatches
-	result into `callback` function
+	Performs patching of given source in separate thread 
 	"""
-	if not import_pyv8():
-		logger.error('PyV8 is not available')
-		return
-
+	logger.debug('Request patching')
 	if buf_id not in _patch_state:
 		_patch_state[buf_id] = {
 			'running': False,
-			'patches': None
+			'patches': [],
+			'start_time': 0
 		}
 
 	state = _patch_state[buf_id]
+	patches = eutils.parse_json(patches) or []
 
-	if patch:
-		if not eutils.isstr(patch):
-			patch = json.dumps(patch)
+	if is_locked(state):
+		logger.debug('Batch patches')
+		state['patches'] += patches
+	elif patches:
+		logger.debug('Start patching')
+		_start_patch(buf_id, patches)
 
-		with PyV8.JSLocker():
-			with js() as c:
-				state['patches'] = c.locals.livestyle.condensePatches(state['patches'], patch)
-
-	if not state['running'] and state['patches']:
-		_patches = state['patches']
-		state['patches'] = None
-		_start_patch(buf_id, _patches, callback)
-
-def _start_patch(buf_id, patch, callback):
+def _start_patch(buf_id, patch):
 	view = eutils.view_for_buffer_id(buf_id)
 	if view is None:
+		logger.debug('No view to patch')
 		return
 
 	content = eutils.content(view)
 	syntax = get_syntax(view)
+	state = _patch_state[buf_id]
 
-	@eutils.main_thread
-	def _c(result):
-		callback(buf_id, result)
 
-		if buf_id in _patch_state:
-			state = _patch_state[buf_id]
-			state['running'] = False
-			if state['patches']:
-				patch(buf_id, None, callback)
+	client = ws.find_client({'supports': 'css'})
+	logger.debug('Client: %s' % client)
 
-	_patch_state[buf_id]['running'] = True
-	with PyV8.JSLocker():
-		threading.Thread(target=_run_patch, args=(content, patch, syntax, _c)).start()
+	if client:
+		logger.debug('Use connected "%s" client for patching' % client.name())
+		lock_state(state)
+		ws.send({
+			'action': 'patch',
+			'data': {
+				'file': buf_id,
+				'syntax': syntax,
+				'patches': patch,
+				'source': content
+			}
+		}, client)
+	else:
+		logger.error('No suitable client for patching')
 
-def _run_patch(content, patch, syntax, callback):
-	def _err(e):
-		logger.error('Error while patching: %s' % e)
-		callback(None)
+def _on_patch_complete(buf_id, content):
+	_dispatcher.trigger('patch_complete', buf_id, content)
 
-	try:
-		with js() as c:
-			r = c.locals.livestyle.patchAndDiff(content, patch, syntax)
-			result = json.loads(r)
-			if result['status'] == 'ok':
-				callback(result)
-			else:
-				_err(result['error'])
-	except Exception as e:
-		_err(e)
+	if buf_id in _patch_state:
+		state = _patch_state[buf_id]
+		unlock_state(state, 'Patch performed in %.4fs')
+		if state['patches']:
+			patch(buf_id, state['patches'])
+			state['patches'] = []
+
 
 def is_valid_patch(content):
 	"Check if given content is a valid patch"
-	if isstr(content):
+	if eutils.isstr(content):
 		try:
 			content = json.loads(content)
 		except:
@@ -299,7 +209,7 @@ def parse_patch(data):
 	if not is_valid_patch(data):
 		return None
 
-	if isstr(data): data = json.loads(data)
+	if eutils.isstr(data): data = json.loads(data)
 	out = []
 	for k, v in data.get('files', {}).items():
 		out.append({
@@ -323,15 +233,29 @@ def _stringify_selectors(patch):
 
 	return out
 
-
 ###############################
-# Init JS context
+# Handle Websockets events
 ###############################
 
-def _cb(status):
-	if status:
-		import_pyv8()
+@eutils.main_thread
+def _on_diff_editor_sources(data):
+	logger.debug('Received diff sources response: %s' % ws.format_message(data))
+	if not data['success']:
+		logger.error('[ws] %s' % data.get('result', ''))
+		_on_diff_complete(data.get('file'), None, None)
+	else:
+		r = data.get('result', {})
+		_on_diff_complete(data.get('file'), r.get('patches'), r.get('source'))
 
-# import_pyv8()
-delegate = lsutils.pyv8delegate.LoaderDelegate(callback=_cb)
-lsutils.pyv8loader.load(lsutils.pyv8delegate.PYV8_PATHS[1], delegate)
+@eutils.main_thread
+def _on_patch_editor_sources(data):
+	logger.debug('Received patched source: %s' % ws.format_message(data))
+	if not data['success']:
+		logger.error('[ws] %s' % data.get('result', ''))
+		_on_patch_complete(data.get('file'), None)
+	else:
+		r = data.get('result', {})
+		_on_patch_complete(data.get('file'), r)
+
+ws.on('diff', _on_diff_editor_sources)
+ws.on('patch', _on_patch_editor_sources)

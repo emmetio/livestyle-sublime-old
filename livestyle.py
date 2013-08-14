@@ -24,28 +24,6 @@ if os.name == 'nt' and sublime.version()[0] < '3':
 	if libs_path not in sys.path:
 		sys.path.insert(0, libs_path)
 
-# don't know why, but tornado's IOLoop cannot
-# properly load platform modules during runtime, 
-# so we pre-import them
-try:
-	import select
-
-	if hasattr(select, "epoll"):
-		import tornado.platform.epoll
-	elif hasattr(select, "kqueue"):
-		import tornado.platform.kqueue
-	else:
-		import tornado.platform.select
-except ImportError:
-	pass
-
-# import tornado.process
-import tornado.ioloop
-import tornado.options
-import tornado.web
-import tornado.websocket
-import tornado.httpserver
-
 
 # Make sure all dependencies are reloaded on upgrade
 if 'lsutils.reloader' in sys.modules:
@@ -54,20 +32,15 @@ import lsutils.reloader
 
 import lsutils.editor as eutils
 import lsutils.diff
+import lsutils.websockets as ws
 import lsutils.webkit_installer
 
 sublime_ver = int(sublime.version()[0])
-
-# Tornado server instance
-httpserver = None
 
 _suppressed = set()
 
 # List of all opened views and their file names
 _view_file_names = {}
-
-# Plugin settings
-settings = None
 
 # Create logger
 logger = logging.getLogger('livestyle')
@@ -78,28 +51,10 @@ if not logger.handlers:
 	ch.setFormatter(logging.Formatter('Emmet LiveStyle: %(message)s'))
 	logger.addHandler(ch)
 
-def send_message(message, client=None, exclude=None):
-	"Sends given message to websocket clients"
-	if not eutils.isstr(message):
-		message = json.dumps(message)
-	clients = WSHandler.clients if not client else [client]
-	if exclude:
-		clients = [c for c in clients if c != exclude]
-
-	if not clients:
-		logger.debug('Cannot send message, client list empty')
-	else:
-		for c in clients:
-			c.write_message(message)
-
-
-def parse_json(data):
-	return json.loads(data) if eutils.isstr(data) else data
-
 @eutils.main_thread
 def identify_editor(socket):
 	"Sends editor identification info to browser"
-	send_message({
+	ws.send({
 		'action': 'id',
 		'data': {
 			'id': 'st%d' % sublime_ver,
@@ -111,20 +66,19 @@ def identify_editor(socket):
 
 @eutils.main_thread
 def update_files():
-	send_message({
+	ws.send({
 		'action': 'updateFiles',
 		'data': eutils.css_files()
 	})
 
-@eutils.main_thread
 def send_patches(buf_id=None, p=None):
 	if not buf_id or not p:
 		return
 
-	p = parse_json(p)
+	p = eutils.parse_json(p)
 	view = eutils.view_for_buffer_id(buf_id)
 	if p and view is not None:
-		send_message({
+		ws.send({
 			'action': 'update',
 			'data': {
 				'editorFile': eutils.file_name(view),
@@ -132,7 +86,6 @@ def send_patches(buf_id=None, p=None):
 			}
 		})
 
-@eutils.main_thread
 def handle_patch_request(payload):
 	logger.debug('Handle CSS patch request')
 
@@ -155,7 +108,7 @@ def handle_patch_request(payload):
 		apply_patch_on_view(view, patch)
 
 def apply_patch_on_view(view, patch):
-	"Waita until view is loaded and applies patch on it"
+	"Waits until view is loaded and applies patch on it"
 	if view.is_loading():
 		return sublime.set_timeout(lambda: apply_patch_on_view(view, patch), 100)
 
@@ -165,7 +118,7 @@ def apply_patch_on_view(view, patch):
 		return
 
 	focus_view(view)
-	lsutils.diff.patch(view.buffer_id(), patch, apply_patched_source)
+	lsutils.diff.patch(view.buffer_id(), patch)
 
 def focus_view(view):
 	# looks like view.window() is broken in ST2,
@@ -191,19 +144,11 @@ def should_handle(view):
 
 	# don't do anything if there are no connected clients
 	# or change performed outside of CSS file
-	return WSHandler.clients and eutils.is_css_view(view, True)
+	return ws.clients() and eutils.is_css_view(view, True)
 
 def suppress_update(view):
 	"Marks given view to skip next incoming update"
 	_suppressed.add(view.id())
-
-def handle_settings_change():
-	if not settings: 
-		return
-
-	stop_server()
-	start_server(int(settings.get('port')))
-	logger.setLevel(logging.DEBUG if settings.get('debug', False) else logging.INFO)
 
 class LivestyleListener(sublime_plugin.EventListener):
 	def on_new(self, view):
@@ -227,7 +172,7 @@ class LivestyleListener(sublime_plugin.EventListener):
 	def on_modified(self, view):
 		if should_handle(view):
 			logger.debug('Run diff')
-			lsutils.diff.diff(view.buffer_id(), send_patches)
+			lsutils.diff.diff(view.buffer_id())
 
 	def on_activated(self, view):
 		if eutils.is_css_view(view, True):
@@ -238,7 +183,7 @@ class LivestyleListener(sublime_plugin.EventListener):
 		k = view.id()
 		new_name = eutils.file_name(view)
 		if k in _view_file_names and _view_file_names[k] != new_name:
-			send_message({
+			ws.send({
 				'action': 'renameFile',
 				'data': {
 					'oldname': _view_file_names[k],
@@ -249,7 +194,7 @@ class LivestyleListener(sublime_plugin.EventListener):
 
 
 class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
-	"Internal command to psroperly replace view content"
+	"Internal command to properly replace view content"
 	def run(self, edit, payload=None, **kwargs):
 		if not payload:
 			return
@@ -259,7 +204,7 @@ class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
 		sels = [[s.a, s.a]]
 		
 		try:
-			payload = parse_json(payload)
+			payload = eutils.parse_json(payload)
 		except:
 			payload = {'content': payload, 'selection': None}
 
@@ -327,79 +272,26 @@ class LivestyleApplyPatch(sublime_plugin.TextCommand):
 		else:
 			sublime.error_message('No patches found. You have to open patch files in Sublime Text or copy patch file contents into clipboard and run this action again.')
 
-
-# XXX init
-# Server app
-
-class WSHandler(tornado.websocket.WebSocketHandler):
-	clients = set()
-	def open(self):
-		logger.info('client connected')
-		WSHandler.clients.add(self)
-		identify_editor(self)
-	
-	def on_message(self, message):
-		logger.debug('message received:\n%s' % message)
-		message = json.loads(message)
-		if message['action'] == 'update':
-			handle_patch_request(message['data'])
-			send_message(message, exclude=self)
-		elif message['action'] == 'error':
-			logger.error('[client] %s' % message['data'].get('message'))
-
-	def on_close(self):
-		logger.info('client disconnected')
-		WSHandler.clients.discard(self)
-
-
-class LiveStyleIDHandler(tornado.web.RequestHandler):
-	def get(self):
-		self.write('LiveStyle websockets server is up and running')
-
-application = tornado.web.Application([
-	(r'/browser', WSHandler),
-	(r'/', LiveStyleIDHandler)
-])
-
-def start_server(port):
-	global httpserver
-	logger.info('Starting LiveStyle server on port %s' % port)
-	httpserver = tornado.httpserver.HTTPServer(application)
-	httpserver.listen(port, address='127.0.0.1')
-	threading.Thread(target=tornado.ioloop.IOLoop.instance().start).start()
-
-def stop_server():
-	global httpserver
-	for c in WSHandler.clients.copy():
-		c.close()
-	WSHandler.clients.clear()
-
-	if httpserver:
-		logger.info('Stopping server')
-		httpserver.stop()
-
-	tornado.ioloop.IOLoop.instance().stop()
-
 def unload_handler():
-	stop_server()
+	ws.stop()
 
 def start_plugin():
-	global settings
-	settings = sublime.load_settings('LiveStyle.sublime-settings')
-	
-	start_server(int(settings.get('port')))
-	logger.setLevel(logging.DEBUG if settings.get('debug', False) else logging.INFO)
-	settings.add_on_change('settings', handle_settings_change)
-
-	lsutils.diff.import_pyv8()
+	ws.start(int(eutils.get_setting('port')))
+	logger.setLevel(logging.DEBUG if eutils.get_setting('debug', False) else logging.INFO)
 
 	# collect all view's file paths
 	for view in eutils.all_views():
 		_view_file_names[view.id()] = eutils.file_name(view)
 
-# Init plugin
+
 def plugin_loaded():
 	sublime.set_timeout(start_plugin, 100)
+
+# Init plugin
+ws.on('update', handle_patch_request)
+ws.on('ws_open', identify_editor)
+lsutils.diff.on('diff_complete', send_patches)
+lsutils.diff.on('patch_complete', apply_patched_source)
 
 if sublime_ver < 3:
 	plugin_loaded()
