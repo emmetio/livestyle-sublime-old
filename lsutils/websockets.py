@@ -81,7 +81,7 @@ def one(name, callback):
 	_dispatcher.one(name, callback)
 
 def format_message(msg):
-	msg = '%s' % msg
+	msg = repr(msg)
 	return msg[0:300]
 
 def send(message, client=None, exclude=None):

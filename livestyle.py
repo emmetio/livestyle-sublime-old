@@ -86,6 +86,7 @@ def send_patches(buf_id=None, p=None):
 			}
 		})
 
+@eutils.main_thread
 def handle_patch_request(payload):
 	logger.debug('Handle CSS patch request')
 
@@ -208,10 +209,10 @@ class LivestyleReplaceContentCommand(sublime_plugin.TextCommand):
 		except:
 			payload = {'content': payload, 'selection': None}
 
-		if sublime_ver < 3:
-			payload['content'] = payload.get('content', '').decode('utf-8')
+		# if sublime_ver < 3:
+		#	payload['content'] = payload.get('content', u'').decode('utf-8')
 
-		self.view.replace(edit, sublime.Region(0, self.view.size()), payload.get('content'))
+		self.view.replace(edit, sublime.Region(0, self.view.size()), payload.get('content', ''))
 
 		if payload.get('selection'):
 			sels = [payload.get('selection')]
