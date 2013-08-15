@@ -1,0 +1,18 @@
+The updated LiveStyle package contains many bugfixes 
+and improvements, but also depends on most recent 
+version of LiveStyle for Chrome extension.
+
+Make sure your LiveStyle for Chrome version is at least 0.8.0.816,
+otherwise current package will not work at all.
+
+If you experience any issues, please help me to debug them:
+
+1. Go to https://github.com/emmetio/livestyle-sublime/issues 
+   and create a new issue with your problem description
+2. It is important to *full* console log. You can find it via
+   `View > Show Console` menu item
+3. If you are experienced ST user and everything seems to be fine
+   in console log, you can enable debug mode for LiveStyle: go to 
+   `Preferences > Package Settings > Emmet LiveStyle > Settings - User`,
+   add `{"debug": true}` there and save the file.
+   You must restart editor to apply changes.
