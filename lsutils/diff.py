@@ -238,7 +238,7 @@ def _stringify_selectors(patch):
 ###############################
 
 @eutils.main_thread
-def _on_diff_editor_sources(data):
+def _on_diff_editor_sources(data, sender):
 	logger.debug('Received diff sources response: %s' % ws.format_message(data))
 	if not data['success']:
 		logger.error('[ws] %s' % data.get('result', ''))
@@ -248,7 +248,7 @@ def _on_diff_editor_sources(data):
 		_on_diff_complete(data.get('file'), r.get('patches'), r.get('source'))
 
 @eutils.main_thread
-def _on_patch_editor_sources(data):
+def _on_patch_editor_sources(data, sender):
 	logger.debug('Received patched source: %s' % ws.format_message(data))
 	if not data['success']:
 		logger.error('[ws] %s' % data.get('result', ''))

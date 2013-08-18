@@ -86,8 +86,48 @@ def send_patches(buf_id=None, p=None):
 			}
 		})
 
+def read_file(file_path):
+	try:
+		with codecs.open(file_path, 'r', 'utf-8') as f:
+			return f.read()
+	except:
+		return None
+
+def send_unsaved_files(payload, sender):
+	files = payload.get('files', [])
+	out = []
+	for f in files:
+		view = eutils.view_for_file(f)
+		if not view:
+			continue
+
+		content = eutils.content(view)
+		if view and view.is_dirty():
+			fname = view.file_name()
+			pristine = None
+			if not fname:
+				# untitled file
+				pristine = ''
+			elif os.path.exists(fname):
+				pristine = read_file(fname)
+
+		if pristine is not None and pristine != content:
+			out.append({
+				'file': f,
+				'pristine': pristine,
+				'content': content
+			})
+
+	if out:
+		ws.send({
+			'action': 'unsavedFiles',
+			'data': {
+				'files': out
+			}
+		}, sender)
+
 @eutils.main_thread
-def handle_patch_request(payload):
+def handle_patch_request(payload, sender):
 	logger.debug('Handle CSS patch request')
 
 	editor_file = payload.get('editorFile')
@@ -290,6 +330,7 @@ def plugin_loaded():
 
 # Init plugin
 ws.on('update', handle_patch_request)
+ws.on('requestUnsavedFiles', send_unsaved_files)
 ws.on('ws_open', identify_editor)
 lsutils.diff.on('diff_complete', send_patches)
 lsutils.diff.on('patch_complete', apply_patched_source)

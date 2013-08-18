@@ -50,10 +50,10 @@ class WSHandler(tornado.websocket.WebSocketHandler):
 	
 	def on_message(self, message):
 		logger.debug('message received:\n%s' % format_message(message))
-		_dispatcher.trigger('ws_message', message)
+		_dispatcher.trigger('ws_message', message, self)
 
 		message = json.loads(message)
-		_dispatcher.trigger(message['action'], message.get('data'))
+		_dispatcher.trigger(message['action'], message.get('data'), self)
 
 		if message['action'] in broadcast_events:
 			send(message, exclude=self)
