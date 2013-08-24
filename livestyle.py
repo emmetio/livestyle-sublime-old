@@ -218,6 +218,7 @@ class LivestyleListener(sublime_plugin.EventListener):
 	def on_activated(self, view):
 		if eutils.is_css_view(view, True):
 			logger.debug('Prepare diff')
+			update_files()
 			lsutils.diff.prepare_diff(view.buffer_id())
 
 	def on_post_save(self, view):
