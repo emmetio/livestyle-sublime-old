@@ -93,6 +93,7 @@ def read_file(file_path):
 	except:
 		return None
 
+@eutils.main_thread
 def send_unsaved_files(payload, sender):
 	files = payload.get('files', [])
 	out = []
@@ -125,6 +126,8 @@ def send_unsaved_files(payload, sender):
 				'files': out
 			}
 		}, sender)
+	else:
+		logger.info('No unsaved changes')
 
 @eutils.main_thread
 def handle_patch_request(payload, sender):
