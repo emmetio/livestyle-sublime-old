@@ -7,6 +7,7 @@ import platform
 import imp
 import logging
 import json
+import codecs
 
 import sublime
 import sublime_plugin
@@ -90,7 +91,8 @@ def read_file(file_path):
 	try:
 		with codecs.open(file_path, 'r', 'utf-8') as f:
 			return f.read()
-	except:
+	except Exception as e:
+		logger.error(e)
 		return None
 
 @eutils.main_thread
@@ -112,7 +114,7 @@ def send_unsaved_files(payload, sender):
 			elif os.path.exists(fname):
 				pristine = read_file(fname)
 
-		if pristine is not None and pristine != content:
+		if pristine is not None:
 			out.append({
 				'file': f,
 				'pristine': pristine,
