@@ -58,7 +58,7 @@ def get_package_name():
 
 def unpack(target_path):
 	"Unpacks LiveStyle extension into given path"
-	pack = os.path.normpath( os.path.join(os.path.dirname(__file__), '..', LIVESTYLE_PACK) )
+	pack = os.path.join(sublime.packages_path(), 'LiveStyle', LIVESTYLE_PACK)
 	if sublime.version() >= '3':
 		# in ST3 we should load package differently
 		pack = sublime.load_binary_resource('Packages/%s/%s' % (get_package_name(), LIVESTYLE_PACK))
@@ -88,7 +88,8 @@ def patch(target_path):
 	with open(main_html) as f:
 		content = f.read()
 		if content.find(code) == -1:
-			content = re.sub(r'(<script>.*?WebInspector\.loaded\(\).*?</script>)', '%s\\n    \\1' % code, content, flags=re.S)
+			r = re.compile(r'(<script>.*?WebInspector\.loaded\(\).*?</script>)', flags=re.S)
+			content = r.sub('%s\\n    \\1' % code, content)
 
 	if content:
 		with open(main_html, 'w') as f:
