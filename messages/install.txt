@@ -10,7 +10,7 @@ help me to debug them:
 
 1. Go to https://github.com/emmetio/livestyle-sublime/issues 
    and create a new issue with your problem description
-2. It is important to *full* console log. You can find it via
+2. It is important to add *full* console log. You can find it via
    `View > Show Console` menu item
 3. If you are experienced ST user and everything seems to be fine
    in console log, you can enable debug mode for LiveStyle: go to 
