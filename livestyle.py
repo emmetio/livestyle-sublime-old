@@ -114,12 +114,12 @@ def send_unsaved_files(payload, sender):
 			elif os.path.exists(fname):
 				pristine = read_file(fname)
 
-		if pristine is not None:
-			out.append({
-				'file': f,
-				'pristine': pristine,
-				'content': content
-			})
+			if pristine is not None:
+				out.append({
+					'file': f,
+					'pristine': pristine,
+					'content': content
+				})
 
 	if out:
 		ws.send({
