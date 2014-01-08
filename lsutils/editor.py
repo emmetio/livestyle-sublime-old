@@ -9,6 +9,7 @@ import re
 
 re_css = re.compile(r'\.css$', re.IGNORECASE)
 _settings = None
+_sels = {}
 
 try:
 	isinstance("", basestring)
@@ -28,6 +29,13 @@ def get_setting(name, default=None):
 		_settings = sublime.load_settings('LiveStyle.sublime-settings')
 
 	return _settings.get(name, default)
+
+def selector_setting(syntax):
+	key = '%s_files_selector' % syntax
+	if key not in _sels:
+		_sels[key] = get_setting(key, 'source.%s' % syntax)
+
+	return _sels[key]
 
 def parse_json(data):
 	return json.loads(data) if isstr(data) else data
@@ -69,27 +77,40 @@ def view_for_file(path):
 
 	return None
 
-def active_view():
-	"Returns currently active view"
-	return sublime.active_window().active_view()
+#####################################
 
-def css_views():
-	"Returns list of opened CSS views"
-	return [view for view in all_views() if is_css_view(view)]
+def supported_views(syntaxes):
+	"Returns list of opened views matching given syntax list"
+	views = []
+	for view in all_views():
+		v = is_supported_view(view, syntaxes)
+		if v:
+			views.append(v)
 
-def css_files():
-	"Returns list of opened CSS files"
-	return [file_name(view) for view in css_views()]
+	return views
 
-def is_css_view(view, strict=False):
-	"Check if given view can be used for live CSS"
-	sel = get_setting('css_files_selector', 'source.css - source.css.less')
-	if not view.file_name() and not strict:
-		# For new files, check if current scope is text.plain (just created)
-		# or it's a strict CSS
-		sel = '%s, text.plain' % sel
+def supported_files(syntaxes):
+	"Returns list of opened files with given syntaxes"
+	return [file_name(sv['view']) for sv in supported_views(syntaxes)]
 
-	return view.score_selector(0, sel) > 0
+def is_supported_view(view, syntaxes, strict=False):
+	"Check if given view matches given syntax"
+
+	for syntax in syntaxes:
+		sel = selector_setting(syntax)
+		if not view.file_name() and not strict:
+			# For new files, check if current scope is text.plain (just created)
+			# or it's a strict syntax check
+			sel = '%s, text.plain' % sel
+
+		if view.score_selector(0, sel) > 0:
+			return {
+				'view': view,
+				'syntax': syntax
+			}
+
+#####################################
+
 
 def unindent_text(text, pad):
 	"""

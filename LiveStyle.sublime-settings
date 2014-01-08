@@ -21,5 +21,7 @@
 	// Currently, works for syntaxes that are very close to CSS: LESS and SCSS
 	// If you want to add LESS and SCSS support, change the value of this
 	// property to "source.css, source.scss"
-	"css_files_selector": "source.css - source.css.less"
+	"css_files_selector": "source.css - source.css.less",
+	"less_files_selector": "source.less",
+	"scss_files_selector": "source.scss",
 }

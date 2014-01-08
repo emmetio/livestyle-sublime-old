@@ -31,9 +31,6 @@ def off(name, callback=None):
 def one(name, callback):
 	_dispatcher.one(name, callback)
 
-def get_syntax(view):
-	return view.score_selector(0, 'source.less, source.scss') and 'scss' or 'css'
-
 def lock_state(state):
 	state['running'] = True
 	state['start_time'] = time.time()
@@ -53,7 +50,7 @@ def is_locked(state):
 # Diff
 ###############################
 
-def prepare_diff(buf_id):
+def prepare_diff(buf_id, syntax):
 	"Prepare buffer for diff'ing"
 	view = eutils.view_for_buffer_id(buf_id)
 	if view is None:
@@ -64,12 +61,13 @@ def prepare_diff(buf_id):
 			'running': False, 
 			'required': False, 
 			'content': '', 
+			'syntax': syntax,
 			'start_time': 0
 		}
 
 	_diff_state[buf_id]['content'] = eutils.content(view)
 
-def diff(buf_id):
+def diff(buf_id, syntax):
 	"""
 	Performs diff'ing of two states of the same file
 	in separate thread
@@ -92,11 +90,10 @@ def _start_diff(buf_id):
 	state = _diff_state[buf_id]
 	prev_content = state['content']
 	content = eutils.content(view)
-	syntax = get_syntax(view)
-
+	syntax = state['syntax']
 	state['required'] = False
 
-	client = ws.find_client({'supports': 'css'})
+	client = ws.find_client({'supports': syntax})
 
 	if client:
 		logger.debug('Use connected "%s" client for diff' % client.name())
@@ -129,7 +126,7 @@ def _on_diff_complete(buf_id, patches, content):
 # Patch
 ###############################
 
-def patch(buf_id, patches):
+def patch(buf_id, patches, syntax):
 	"""
 	Performs patching of given source in separate thread 
 	"""
@@ -138,6 +135,7 @@ def patch(buf_id, patches):
 		_patch_state[buf_id] = {
 			'running': False,
 			'patches': [],
+			'syntax': syntax,
 			'start_time': 0
 		}
 
@@ -158,11 +156,10 @@ def _start_patch(buf_id, patch):
 		return
 
 	content = eutils.content(view)
-	syntax = get_syntax(view)
 	state = _patch_state[buf_id]
+	syntax = state['syntax']
 
-
-	client = ws.find_client({'supports': 'css'})
+	client = ws.find_client({'supports': syntax})
 	logger.debug('Client: %s' % client)
 
 	if client:

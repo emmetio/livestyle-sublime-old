@@ -102,9 +102,7 @@ def replace_with(str, ranges, ch):
 	return out
 
 def resolve_url(url, base):
-	files = [url]
-	if '.' not in url:
-		files.append(u'%s.less' % url)
+	files = [url, u'%s.less' % url]
 
 	if not os.path.isabs(url):
 		# not an absolute path, resolve as relative

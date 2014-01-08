@@ -43,6 +43,9 @@ _suppressed = set()
 # List of all opened views and their file names
 _view_file_names = {}
 
+# List of supported byLiveStyle file extensions
+supported_syntaxes = ['css'];
+
 # Create logger
 logger = logging.getLogger('livestyle')
 logger.propagate = False
@@ -51,6 +54,13 @@ if not logger.handlers:
 	ch.setLevel(logging.DEBUG)
 	ch.setFormatter(logging.Formatter('Emmet LiveStyle: %(message)s'))
 	logger.addHandler(ch)
+
+def is_supported_view(view, strict=False):
+	return eutils.is_supported_view(view, supported_syntaxes, strict)
+
+def view_syntax(view):
+	sv = is_supported_view(view)
+	return sv and sv['syntax'] or 'css'
 
 @eutils.main_thread
 def identify_editor(socket):
@@ -61,7 +71,7 @@ def identify_editor(socket):
 			'id': 'st%d' % sublime_ver,
 			'title': 'Sublime Text %d' % sublime_ver,
 			'icon': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABu0lEQVR42q2STWsTURhG3WvdCyq4CEVBAgYCM23JjEwy+cJC41gRdTIEGyELU7BNNMJQhUBBTUjSRdRI3GThRld+gbj2JwhuRFy5cZ3Ncd5LBwZCIIIXDlzmeZ9z4d458t9WoVB4XywWCcnn89i2TSaTIZvNEuRhJvtP0e7R6XT6VYJer8dkMmE0GrHf3uPxg1s8f+TR9ncZDocq63a7SiId6YogBqiPg8FASe43d3iz7/D7rcuP1zf4NnHxfV9yQc0CSFcEeihotVo0Gg22tzbh3SbP7lq4lzTuuHlqtZrkQlSgi8AIBZVKBc/zuH5lnc7tFX4OL/L9wOTJlsbGepFyuSwzUYERCqIXhGVZJJNJbqbP0b66DC8ucO/yedLptMzMF4S3X7JXeFWJ4Zln2LZPw9NT+BuxxQTquaw1Xl47yZ/WEr92j3PgnMBc08nlcvMF1Wo1DNW7G4aBpmnouo5pmtGyzM4K+v0+4/F4ITqdzqzAdV0cxyGVSsmpc5G/s1QqzQg+N5tNdUmJRIJ4PD4XkdTrdaQTClYDlvnHFXTOqu7h5mHAx4AvC/IhYE+6IliK2IwFWT3sHPsL6BnLQ4kfGmsAAAAASUVORK5CYII=',
-			'files': eutils.css_files()
+			'files': eutils.supported_files(supported_syntaxes)
 		}
 	}, socket)
 
@@ -69,7 +79,7 @@ def identify_editor(socket):
 def update_files():
 	ws.send({
 		'action': 'updateFiles',
-		'data': eutils.css_files()
+		'data': eutils.supported_files(supported_syntaxes)
 	})
 
 def send_patches(buf_id=None, p=None):
@@ -78,12 +88,14 @@ def send_patches(buf_id=None, p=None):
 
 	p = eutils.parse_json(p)
 	view = eutils.view_for_buffer_id(buf_id)
+	sv = is_supported_view(view)
 	if p and view is not None:
 		ws.send({
 			'action': 'update',
 			'data': {
 				'editorFile': eutils.file_name(view),
-				'patch': p
+				'patch': p,
+				'syntax': sv and sv['syntax'] or ''
 			}
 		})
 
@@ -133,9 +145,8 @@ def send_unsaved_files(payload, sender):
 
 @eutils.main_thread
 def handle_patch_request(payload, sender):
-	logger.debug('Handle CSS patch request')
-
 	editor_file = payload.get('editorFile')
+	logger.debug('Handle patch request for %s' % editor_file)
 	if not editor_file:
 		logger.debug('No editor file in payload, skip patching')
 		return
@@ -153,18 +164,25 @@ def handle_patch_request(payload, sender):
 	if patch:
 		apply_patch_on_view(view, patch)
 
+@eutils.main_thread
+def handle_handshake(payload, sender):
+	logger.debug('Handle handshake')
+	globals()['supported_syntaxes'] = payload.get('supports')
+	logger.debug('Supported syntaxes: %s' % supported_syntaxes)
+	update_files()
+
 def apply_patch_on_view(view, patch):
 	"Waits until view is loaded and applies patch on it"
 	if view.is_loading():
 		return sublime.set_timeout(lambda: apply_patch_on_view(view, patch), 100)
 
-	# make sure it's a CSS file
-	if not eutils.is_css_view(view, True):
-		logger.debug('File %s is not CSS, aborting' % eutils.file_name(view))
+	# make sure it's a supported file
+	if not is_supported_view(view, True):
+		logger.debug('File %s is not supported, aborting' % eutils.file_name(view))
 		return
 
 	focus_view(view)
-	lsutils.diff.patch(view.buffer_id(), patch)
+	lsutils.diff.patch(view.buffer_id(), patch, view_syntax(view))
 
 def focus_view(view):
 	# looks like view.window() is broken in ST2,
@@ -190,7 +208,7 @@ def should_handle(view):
 
 	# don't do anything if there are no connected clients
 	# or change performed outside of CSS file
-	return ws.clients() and eutils.is_css_view(view, True)
+	return ws.clients() and is_supported_view(view, True)
 
 def suppress_update(view):
 	"Marks given view to skip next incoming update"
@@ -200,13 +218,13 @@ class LivestyleListener(sublime_plugin.EventListener):
 	def on_new(self, view):
 		_view_file_names[view.id()] = eutils.file_name(view)
 
-		if eutils.is_css_view(view):
+		if is_supported_view(view):
 			update_files()
 
 	def on_load(self, view):
 		_view_file_names[view.id()] = eutils.file_name(view)
 
-		if eutils.is_css_view(view):
+		if is_supported_view(view):
 			update_files()
 
 	def on_close(self, view):
@@ -218,13 +236,13 @@ class LivestyleListener(sublime_plugin.EventListener):
 	def on_modified(self, view):
 		if should_handle(view):
 			logger.debug('Run diff')
-			lsutils.diff.diff(view.buffer_id())
+			lsutils.diff.diff(view.buffer_id(), view_syntax(view))
 
 	def on_activated(self, view):
-		if eutils.is_css_view(view, True):
+		if is_supported_view(view, True):
 			logger.debug('Prepare diff')
 			update_files()
-			lsutils.diff.prepare_diff(view.buffer_id())
+			lsutils.diff.prepare_diff(view.buffer_id(), view_syntax(view))
 
 	def on_post_save(self, view):
 		k = view.id()
@@ -285,7 +303,7 @@ class LivestyleInstallWebkitExt(sublime_plugin.ApplicationCommand):
 class LivestyleApplyPatch(sublime_plugin.TextCommand):
 	"Applies LiveStyle patch to active view"
 	def run(self, edit, **kw):
-		if not eutils.is_css_view(self.view, True):
+		if not is_supported_view(self.view, True):
 			return sublime.error_message('You should run this action on CSS file')
 
 		# build sources list
@@ -323,6 +341,7 @@ def unload_handler():
 	ws.stop()
 
 def start_plugin():
+	print('Start plugin on %s' % eutils.get_setting('port'))
 	ws.start(int(eutils.get_setting('port')))
 	logger.setLevel(logging.DEBUG if eutils.get_setting('debug', False) else logging.INFO)
 
@@ -337,6 +356,7 @@ def plugin_loaded():
 # Init plugin
 ws.on('update', handle_patch_request)
 ws.on('requestUnsavedFiles', send_unsaved_files)
+ws.on('handshake', handle_handshake)
 ws.on('ws_open', identify_editor)
 lsutils.diff.on('diff_complete', send_patches)
 lsutils.diff.on('patch_complete', apply_patched_source)
