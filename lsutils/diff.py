@@ -10,6 +10,7 @@ import json
 import logging
 import imp
 
+import lsutils.depgraph as depgraph
 import lsutils.editor as eutils
 import lsutils.websockets as ws
 
@@ -47,6 +48,37 @@ def is_locked(state):
 	return False
 
 ###############################
+# Dependencies
+###############################
+
+def global_deps(view, syntax):
+	"Returns list of project's global dependencies for given view"
+	wnd = view.window()
+
+	if not hasattr(wnd, 'project_file_name'):
+		return []
+
+	project_data = wnd.project_data()
+	if not project_data or not project_data.get('livestyle'):
+		return []
+
+	project_file = wnd.project_file_name()
+	project_dir = os.path.dirname(project_file)
+	ls_data = project_data.get('livestyle')
+	key = '%s_globals' % syntax
+	files = ls_data.get(key, [])
+	return [os.path.join(project_dir, f) for f in files]
+
+def view_deps(view, syntax):
+	"Returns dependencies for given view"
+	if syntax == 'css':
+		return None
+
+	g = global_deps(view, syntax)
+	deps = depgraph.dependencies(view.file_name(), eutils.content(view), g)
+	return [d.json() for d in deps]
+
+###############################
 # Diff
 ###############################
 
@@ -62,6 +94,7 @@ def prepare_diff(buf_id, syntax):
 			'required': False, 
 			'content': '', 
 			'syntax': syntax,
+			'deps': view_deps(view, syntax),
 			'start_time': 0
 		}
 
@@ -74,7 +107,7 @@ def diff(buf_id, syntax):
 	"""
 	if buf_id not in _diff_state:
 		logger.debug('Prepare buffer')
-		prepare_diff(buf_id)
+		prepare_diff(buf_id, syntax)
 
 	state = _diff_state[buf_id]
 	if is_locked(state):
@@ -104,7 +137,8 @@ def _start_diff(buf_id):
 				'file': buf_id,
 				'syntax': syntax,
 				'source1': prev_content,
-				'source2': content
+				'source2': content,
+				'deps': state['deps']
 			}
 		}, client)
 	else:
@@ -132,10 +166,12 @@ def patch(buf_id, patches, syntax):
 	"""
 	logger.debug('Request patching')
 	if buf_id not in _patch_state:
+		view = eutils.view_for_buffer_id(buf_id)
 		_patch_state[buf_id] = {
 			'running': False,
 			'patches': [],
 			'syntax': syntax,
+			'deps': view_deps(view, syntax),
 			'start_time': 0
 		}
 
@@ -160,10 +196,9 @@ def _start_patch(buf_id, patch):
 	syntax = state['syntax']
 
 	client = ws.find_client({'supports': syntax})
-	logger.debug('Client: %s' % client)
 
 	if client:
-		logger.debug('Use connected "%s" client for patching' % client.name())
+		logger.debug('Use connected "%s" client for patching %s source' % (client.name(), syntax))
 		lock_state(state)
 		ws.send({
 			'action': 'patch',
@@ -171,7 +206,8 @@ def _start_patch(buf_id, patch):
 				'file': buf_id,
 				'syntax': syntax,
 				'patches': patch,
-				'source': content
+				'source': content,
+				'deps': state['deps']
 			}
 		}, client)
 	else:

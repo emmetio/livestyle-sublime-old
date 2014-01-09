@@ -62,16 +62,23 @@ class Dependency():
 
 	def release_content(self):
 		self._content = None
-		
 
-def dependencies(url, content):
+	def json(self):
+		return {
+			'url': self.url,
+			'crc': self.crc,
+			'content': self.content()
+		}
+
+def dependencies(url, content, global_deps=[]):
 	"Returns plain list of dependencies for given URL and content."
 	local_cache = set()
 	# in case of circular references, forbid parsing current url
 	local_cache.add(url)
 	t = time.time()
 	result = []
-	deps = depreader.find_dependencies(url, content)
+
+	deps = global_deps + depreader.find_dependencies(url, content)
 	for d in deps:
 		result += resolve_deps(d, t, local_cache)
 
@@ -79,6 +86,9 @@ def dependencies(url, content):
 
 	
 def resolve_deps(url, check_time=None, local_cache=None):
+	if not url:
+		return []
+
 	if check_time is None:
 		check_time = time.time()
 

@@ -12,6 +12,8 @@ for mod in sys.modules:
 
 mods_load_order = [
 	'lsutils.event_dispatcher',
+	'lsutils.depreader',
+	'lsutils.depgraph',
 	'lsutils.editor',
 	'lsutils.websockets',
 	'lsutils.webkit_installer',
