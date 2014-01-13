@@ -154,7 +154,7 @@ def _on_diff_complete(buf_id, patches, content):
 			state['content'] = content
 
 		if state['required']:
-			diff(buf_id)
+			diff(buf_id, syntax)
 
 ###############################
 # Patch
@@ -218,9 +218,10 @@ def _on_patch_complete(buf_id, content):
 
 	if buf_id in _patch_state:
 		state = _patch_state[buf_id]
+		syntax = state['syntax']
 		unlock_state(state, 'Patch performed in %.4fs')
 		if state['patches']:
-			patch(buf_id, state['patches'])
+			patch(buf_id, state['patches'], syntax)
 			state['patches'] = []
 
 
