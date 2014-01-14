@@ -130,7 +130,8 @@ def send_unsaved_files(payload, sender):
 				out.append({
 					'file': f,
 					'pristine': pristine,
-					'content': content
+					'content': content,
+					'syntax': view_syntax(view)
 				})
 
 	if out:

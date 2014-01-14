@@ -154,7 +154,7 @@ def _on_diff_complete(buf_id, patches, content):
 			state['content'] = content
 
 		if state['required']:
-			diff(buf_id, syntax)
+			diff(buf_id, state['syntax'])
 
 ###############################
 # Patch
