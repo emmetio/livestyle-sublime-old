@@ -127,11 +127,13 @@ def send_unsaved_files(payload, sender):
 				pristine = read_file(fname)
 
 			if pristine is not None:
+				syntax = view_syntax(view)
 				out.append({
 					'file': f,
 					'pristine': pristine,
 					'content': content,
-					'syntax': view_syntax(view)
+					'syntax': syntax,
+					'deps': lsutils.diff.view_deps(view, syntax)
 				})
 
 	if out:
