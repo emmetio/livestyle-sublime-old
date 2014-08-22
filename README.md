@@ -10,7 +10,7 @@ You can install directly from Package Control.
 2. When installed, open Command Palette in ST editor and pick `Package Control: Install Repository` command.
 3. Find and install *Emmet LiveStyle* extension.
 
-When installed, LiveStyle will automatically download require PyV8 extension. If you experience issues with automatic PyV8 installation, try to [install it manually](https://github.com/emmetio/pyv8-binaries#manual-installation).
+When installed, LiveStyle will automatically download the required PyV8 extension. If you experience issues with automatic PyV8 installation, try to [install it manually](https://github.com/emmetio/pyv8-binaries#manual-installation).
 
 *NB: if you have Emmet or TernJS extensions installed, make sure you have the most recent versions since they contain updates vital for LiveStyle extension.*
 
